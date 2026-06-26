@@ -516,6 +516,8 @@
         const TEMP_LIMIT = 40;
         const GAS_LIMIT = 600;
         const GAS_SCALE_MAX = 1200;
+        const ESP32_TIMEOUT_MS = 10000;
+        let esp32OfflineTimer;
 
         const elements = {
             connection: document.getElementById("connection"),
@@ -556,6 +558,26 @@
             output.textContent = isOn ? "ON" : "OFF";
         }
 
+        function resetDashboard() {
+            elements.statusPanel.classList.remove("alert");
+            elements.statusTitle.textContent = "ESP32 Offline";
+            elements.statusMessage.textContent = "No live sensor data is being received.";
+            elements.light.src = "images/light off.png";
+            elements.temp.textContent = "--";
+            elements.hum.textContent = "--";
+            elements.gas.textContent = "--";
+            elements.gasMarker.style.left = "0";
+            elements.riskLevel.textContent = "--";
+            elements.lastUpdate.textContent = "--";
+            setDevice(elements.fanCard, elements.fan, "OFF");
+            setDevice(elements.buzzerCard, elements.buzzer, "OFF");
+        }
+
+        function markEsp32Online() {
+            window.clearTimeout(esp32OfflineTimer);
+            esp32OfflineTimer = window.setTimeout(resetDashboard, ESP32_TIMEOUT_MS);
+        }
+
         function updateDashboard(data) {
             const temperature = Number(data.temperature);
             const humidity = Number(data.humidity);
@@ -563,6 +585,8 @@
             const highTemp = temperature > TEMP_LIMIT;
             const highGas = gas > GAS_LIMIT;
             const isAlert = highTemp || highGas;
+
+            markEsp32Online();
 
             elements.temp.textContent = formatNumber(temperature);
             elements.hum.textContent = formatNumber(humidity);
@@ -603,37 +627,23 @@
             setDevice(elements.buzzerCard, elements.buzzer, data.buzzer_status);
         }
 
-        async function loadLatestReading() {
-            try {
-                const response = await fetch("/api/latest");
-                if (!response.ok) {
-                    return;
-                }
-                const latest = await response.json();
-                if (latest && Object.keys(latest).length > 0) {
-                    updateDashboard(latest);
-                }
-            } catch (error) {
-                console.log("Latest reading unavailable", error);
-            }
-        }
-
         if (typeof io === "function") {
             const socket = io();
 
             socket.on("connect", () => {
                 setConnection("connected", "Live");
-                loadLatestReading();
+                resetDashboard();
             });
 
             socket.on("disconnect", () => {
                 setConnection("disconnected", "Offline");
+                resetDashboard();
             });
 
             socket.on("sensorUpdate", updateDashboard);
         } else {
             setConnection("disconnected", "Offline");
-            loadLatestReading();
+            resetDashboard();
         }
     </script>
 </body>
