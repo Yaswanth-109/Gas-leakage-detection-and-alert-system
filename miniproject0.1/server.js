@@ -18,6 +18,12 @@ const io = new Server(server, {
 const PORT = process.env.PORT || 3000;
 const TEMPERATURE_LIMIT = Number(process.env.TEMPERATURE_LIMIT || 40);
 const GAS_LIMIT = Number(process.env.GAS_LIMIT || 600);
+const ESP32_TIMEOUT_MS = Number(process.env.ESP32_TIMEOUT_MS || 10000);
+
+let esp32Online = false;
+let esp32LastSeen = null;
+let esp32OfflineTimer;
+let latestLiveReading = null;
 
 app.use(cors());
 app.use(express.json());
@@ -90,6 +96,48 @@ function getSystemStatus(temperature, gas) {
     return "NORMAL";
 }
 
+function emitEsp32Status() {
+    io.emit("esp32Status", {
+        online: esp32Online,
+        last_seen: esp32LastSeen
+    });
+}
+
+function markEsp32Online(payload) {
+    esp32Online = true;
+    esp32LastSeen = new Date().toISOString();
+    latestLiveReading = {
+        ...payload,
+        received_at: esp32LastSeen
+    };
+
+    clearEsp32OfflineTimer();
+    esp32OfflineTimer = setTimeout(() => {
+        esp32Online = false;
+        latestLiveReading = null;
+        emitEsp32Status();
+    }, ESP32_TIMEOUT_MS);
+
+    emitEsp32Status();
+}
+
+function clearEsp32OfflineTimer() {
+    if (esp32OfflineTimer) {
+        clearTimeout(esp32OfflineTimer);
+    }
+}
+
+io.on("connection", (socket) => {
+    socket.emit("esp32Status", {
+        online: esp32Online,
+        last_seen: esp32LastSeen
+    });
+
+    if (esp32Online && latestLiveReading) {
+        socket.emit("sensorUpdate", latestLiveReading);
+    }
+});
+
 app.get("/", (req, res) => {
     res.sendFile(path.join(__dirname, "public", "index.html"));
 });
@@ -99,7 +147,16 @@ app.get("/health", (req, res) => {
         ok: true,
         service: "smart-air-monitoring",
         temperature_limit: TEMPERATURE_LIMIT,
-        gas_limit: GAS_LIMIT
+        gas_limit: GAS_LIMIT,
+        esp32_online: esp32Online,
+        esp32_last_seen: esp32LastSeen
+    });
+});
+
+app.get("/api/esp32-status", (req, res) => {
+    res.json({
+        online: esp32Online,
+        last_seen: esp32LastSeen
     });
 });
 
@@ -118,6 +175,17 @@ app.post("/sensor-data", (req, res) => {
     }
 
     const status = getSystemStatus(temperature, gas);
+    const payload = {
+        temperature,
+        humidity,
+        gas,
+        fan_status,
+        buzzer_status,
+        status
+    };
+
+    markEsp32Online(payload);
+    io.emit("sensorUpdate", payload);
 
     console.log("====================================");
     console.log("SMART AIR MONITORING SYSTEM");
@@ -159,17 +227,6 @@ app.post("/sensor-data", (req, res) => {
                     message: "Database Error"
                 });
             }
-
-            const payload = {
-                temperature,
-                humidity,
-                gas,
-                fan_status,
-                buzzer_status,
-                status
-            };
-
-            io.emit("sensorUpdate", payload);
 
             res.status(200).json({
                 success: true,
