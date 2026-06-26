@@ -516,8 +516,6 @@
         const TEMP_LIMIT = 40;
         const GAS_LIMIT = 600;
         const GAS_SCALE_MAX = 1200;
-        const ESP32_TIMEOUT_MS = 10000;
-        let esp32OfflineTimer;
 
         const elements = {
             connection: document.getElementById("connection"),
@@ -573,11 +571,6 @@
             setDevice(elements.buzzerCard, elements.buzzer, "OFF");
         }
 
-        function markEsp32Online() {
-            window.clearTimeout(esp32OfflineTimer);
-            esp32OfflineTimer = window.setTimeout(resetDashboard, ESP32_TIMEOUT_MS);
-        }
-
         function updateDashboard(data) {
             const temperature = Number(data.temperature);
             const humidity = Number(data.humidity);
@@ -585,8 +578,6 @@
             const highTemp = temperature > TEMP_LIMIT;
             const highGas = gas > GAS_LIMIT;
             const isAlert = highTemp || highGas;
-
-            markEsp32Online();
 
             elements.temp.textContent = formatNumber(temperature);
             elements.hum.textContent = formatNumber(humidity);
@@ -627,6 +618,12 @@
             setDevice(elements.buzzerCard, elements.buzzer, data.buzzer_status);
         }
 
+        function updateEsp32Status(status) {
+            if (!status || status.online !== true) {
+                resetDashboard();
+            }
+        }
+
         if (typeof io === "function") {
             const socket = io();
 
@@ -641,6 +638,7 @@
             });
 
             socket.on("sensorUpdate", updateDashboard);
+            socket.on("esp32Status", updateEsp32Status);
         } else {
             setConnection("disconnected", "Offline");
             resetDashboard();
