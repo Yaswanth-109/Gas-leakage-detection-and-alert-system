@@ -18,7 +18,6 @@ const io = new Server(server, {
 const PORT = process.env.PORT || 3000;
 const TEMPERATURE_LIMIT = Number(process.env.TEMPERATURE_LIMIT || 40);
 const GAS_LIMIT = Number(process.env.GAS_LIMIT || 600);
-const DB_SSL_REJECT_UNAUTHORIZED = process.env.DB_SSL_REJECT_UNAUTHORIZED === "true";
 
 app.use(cors());
 app.use(express.json());
@@ -39,7 +38,7 @@ function getDatabaseConfig() {
         };
 
         if (process.env.DB_SSL !== "false") {
-            config.ssl = { rejectUnauthorized: DB_SSL_REJECT_UNAUTHORIZED };
+            config.ssl = { rejectUnauthorized: false };
         }
 
         return config;
@@ -57,7 +56,7 @@ function getDatabaseConfig() {
     };
 
     if (process.env.DB_SSL !== "false") {
-        config.ssl = { rejectUnauthorized: DB_SSL_REJECT_UNAUTHORIZED };
+        config.ssl = { rejectUnauthorized: false };
     }
 
     return config;
