@@ -107,6 +107,7 @@ DB_NAME=gas_monitor
 DB_SSL=true
 TEMPERATURE_LIMIT=40
 GAS_LIMIT=600
+ESP32_TIMEOUT_MS=10000
 ```
 
 ## Local Setup
@@ -171,6 +172,14 @@ GET /api/latest
 
 Returns the most recent row from the database.
 
+### ESP32 Status
+
+```text
+GET /api/esp32-status
+```
+
+Returns whether the server is currently receiving live ESP32 data.
+
 ### Health Check
 
 ```text
@@ -187,6 +196,18 @@ Gas alert: gas > 600
 ```
 
 These limits match the ESP32 and dashboard logic.
+
+## ESP32 Online/Offline Logic
+
+The server marks ESP32 as online whenever it receives `POST /sensor-data`.
+
+If no new sensor data arrives within:
+
+```text
+ESP32_TIMEOUT_MS=10000
+```
+
+the server marks ESP32 as offline and the dashboard clears the old readings.
 
 ## Render Deployment
 
@@ -216,6 +237,7 @@ DB_NAME=gas_monitor
 DB_SSL=true
 TEMPERATURE_LIMIT=40
 GAS_LIMIT=600
+ESP32_TIMEOUT_MS=10000
 ```
 
 After deployment, Render provides a public URL:
