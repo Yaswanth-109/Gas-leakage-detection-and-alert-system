@@ -1,0 +1,640 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Air Monitoring Dashboard</title>
+
+    <script src="/socket.io/socket.io.js"></script>
+
+    <style>
+        :root {
+            --bg: #eef2f3;
+            --panel: #ffffff;
+            --ink: #16211f;
+            --muted: #66736f;
+            --line: #d9e1df;
+            --green: #11875d;
+            --green-soft: #dff4eb;
+            --amber: #b56a00;
+            --amber-soft: #fff0d2;
+            --red: #c82f2f;
+            --red-soft: #fde3e0;
+            --blue: #2367c8;
+            --blue-soft: #e1edff;
+            --shadow: 0 16px 40px rgba(23, 39, 35, 0.12);
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            font-family: Arial, Helvetica, sans-serif;
+            color: var(--ink);
+            background:
+                linear-gradient(180deg, rgba(255, 255, 255, 0.65), rgba(255, 255, 255, 0)),
+                var(--bg);
+        }
+
+        .shell {
+            width: min(1180px, calc(100% - 32px));
+            margin: 0 auto;
+            padding: 28px 0 36px;
+        }
+
+        .topbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 18px;
+            margin-bottom: 22px;
+        }
+
+        .brand {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        h1 {
+            margin: 0;
+            font-size: clamp(28px, 4vw, 42px);
+            line-height: 1.05;
+            letter-spacing: 0;
+        }
+
+        .subtitle {
+            margin: 0;
+            color: var(--muted);
+            font-size: 15px;
+        }
+
+        .connection {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            min-height: 38px;
+            padding: 8px 12px;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.78);
+            color: var(--muted);
+            font-size: 14px;
+            white-space: nowrap;
+        }
+
+        .dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: var(--amber);
+            box-shadow: 0 0 0 4px var(--amber-soft);
+        }
+
+        .connection.connected .dot {
+            background: var(--green);
+            box-shadow: 0 0 0 4px var(--green-soft);
+        }
+
+        .connection.disconnected .dot {
+            background: var(--red);
+            box-shadow: 0 0 0 4px var(--red-soft);
+        }
+
+        .hero {
+            display: grid;
+            grid-template-columns: minmax(0, 1.25fr) minmax(280px, 0.75fr);
+            gap: 18px;
+            align-items: stretch;
+            margin-bottom: 18px;
+        }
+
+        .status-panel,
+        .environment-panel,
+        .metric-card,
+        .device-card {
+            background: var(--panel);
+            border: 1px solid rgba(217, 225, 223, 0.9);
+            border-radius: 8px;
+            box-shadow: var(--shadow);
+        }
+
+        .status-panel {
+            display: grid;
+            grid-template-columns: 160px minmax(0, 1fr);
+            gap: 24px;
+            align-items: center;
+            min-height: 280px;
+            padding: 26px;
+        }
+
+        .alert-visual {
+            display: grid;
+            place-items: center;
+            width: 150px;
+            height: 150px;
+            border-radius: 8px;
+            background: #f6faf8;
+            border: 1px solid var(--line);
+        }
+
+        .alert-visual img {
+            display: block;
+            width: 106px;
+            height: 106px;
+            object-fit: contain;
+            transition: transform 0.25s ease;
+        }
+
+        .alert .alert-visual img {
+            transform: scale(1.06);
+        }
+
+        .status-copy {
+            min-width: 0;
+        }
+
+        .eyebrow {
+            margin: 0 0 10px;
+            color: var(--muted);
+            font-size: 13px;
+            font-weight: 700;
+            letter-spacing: 0;
+            text-transform: uppercase;
+        }
+
+        .status-title {
+            margin: 0;
+            font-size: clamp(30px, 5vw, 52px);
+            line-height: 1;
+            letter-spacing: 0;
+        }
+
+        .status-message {
+            margin: 14px 0 0;
+            color: var(--muted);
+            font-size: 17px;
+            line-height: 1.45;
+        }
+
+        .environment-panel {
+            display: grid;
+            align-content: space-between;
+            min-height: 280px;
+            padding: 22px;
+            overflow: hidden;
+        }
+
+        .gauge-head {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            align-items: center;
+        }
+
+        .gauge-label {
+            margin: 0;
+            color: var(--muted);
+            font-size: 13px;
+            font-weight: 700;
+            text-transform: uppercase;
+        }
+
+        .last-update {
+            color: var(--muted);
+            font-size: 13px;
+            text-align: right;
+        }
+
+        .gas-readout {
+            margin: 16px 0;
+        }
+
+        .gas-value {
+            display: block;
+            font-size: clamp(56px, 9vw, 86px);
+            font-weight: 800;
+            line-height: 0.95;
+        }
+
+        .gas-unit {
+            color: var(--muted);
+            font-size: 15px;
+        }
+
+        .gas-meter {
+            position: relative;
+            padding-bottom: 20px;
+        }
+
+        .gas-track {
+            height: 12px;
+            border-radius: 999px;
+            background: linear-gradient(90deg, var(--green) 0%, var(--amber) 58%, var(--red) 100%);
+            overflow: hidden;
+        }
+
+        .gas-marker {
+            position: absolute;
+            top: -5px;
+            left: 0;
+            width: 16px;
+            height: 22px;
+            border-radius: 999px;
+            background: #ffffff;
+            border: 3px solid var(--ink);
+            transition: left 0.25s ease;
+        }
+
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 14px;
+            margin-bottom: 18px;
+        }
+
+        .metric-card,
+        .device-card {
+            min-height: 138px;
+            padding: 18px;
+        }
+
+        .metric-card {
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            gap: 18px;
+        }
+
+        .metric-top,
+        .device-top {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+        }
+
+        .metric-label,
+        .device-label {
+            margin: 0;
+            color: var(--muted);
+            font-size: 14px;
+            font-weight: 700;
+        }
+
+        .metric-icon,
+        .device-icon {
+            display: grid;
+            place-items: center;
+            width: 38px;
+            height: 38px;
+            border-radius: 8px;
+            font-size: 18px;
+            font-weight: 800;
+        }
+
+        .temp-icon {
+            color: var(--red);
+            background: var(--red-soft);
+        }
+
+        .hum-icon {
+            color: var(--blue);
+            background: var(--blue-soft);
+        }
+
+        .gas-icon {
+            color: var(--amber);
+            background: var(--amber-soft);
+        }
+
+        .fan-icon,
+        .buzzer-icon {
+            color: var(--muted);
+            background: #f1f5f4;
+        }
+
+        .metric-value {
+            margin: 0;
+            font-size: clamp(30px, 5vw, 44px);
+            line-height: 1;
+            font-weight: 800;
+        }
+
+        .metric-unit {
+            color: var(--muted);
+            font-size: 16px;
+            font-weight: 500;
+        }
+
+        .devices-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 14px;
+        }
+
+        .device-card {
+            display: grid;
+            gap: 18px;
+            align-content: space-between;
+        }
+
+        .device-state {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: fit-content;
+            min-width: 78px;
+            min-height: 34px;
+            padding: 7px 14px;
+            border-radius: 8px;
+            color: var(--muted);
+            background: #f1f5f4;
+            font-weight: 800;
+        }
+
+        .device-card.on .device-state {
+            color: var(--green);
+            background: var(--green-soft);
+        }
+
+        .device-card.on .device-icon {
+            color: var(--green);
+            background: var(--green-soft);
+        }
+
+        .device-card.warning.on .device-state,
+        .device-card.warning.on .device-icon {
+            color: var(--red);
+            background: var(--red-soft);
+        }
+
+        @media (max-width: 820px) {
+            .topbar,
+            .hero {
+                grid-template-columns: 1fr;
+            }
+
+            .topbar {
+                align-items: flex-start;
+            }
+
+            .status-panel {
+                grid-template-columns: 1fr;
+                min-height: 0;
+            }
+
+            .alert-visual {
+                width: 132px;
+                height: 132px;
+            }
+
+            .metrics-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        @media (max-width: 560px) {
+            .shell {
+                width: min(100% - 22px, 1180px);
+                padding-top: 18px;
+            }
+
+            .connection {
+                width: 100%;
+                justify-content: center;
+            }
+
+            .status-panel,
+            .environment-panel,
+            .metric-card,
+            .device-card {
+                padding: 16px;
+            }
+
+            .devices-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <main class="shell">
+        <header class="topbar">
+            <div class="brand">
+                <h1>Smart Air Monitoring</h1>
+                <p class="subtitle">Live safety dashboard</p>
+            </div>
+
+            <div class="connection disconnected" id="connection">
+                <span class="dot"></span>
+                <span id="connectionText">Connecting</span>
+            </div>
+        </header>
+
+        <section class="hero">
+            <section class="status-panel" id="statusPanel">
+                <div class="alert-visual">
+                    <img id="alight" src="images/light off.png" alt="Alert light">
+                </div>
+
+                <div class="status-copy">
+                    <p class="eyebrow">System Status</p>
+                    <h2 class="status-title" id="statusTitle">Waiting</h2>
+                    <p class="status-message" id="statusMessage">No live reading received yet.</p>
+                </div>
+            </section>
+
+            <section class="environment-panel">
+                <div class="gauge-head">
+                    <p class="gauge-label">Gas Level</p>
+                    <span class="last-update" id="lastUpdate">--</span>
+                </div>
+
+                <div class="gas-readout">
+                    <span class="gas-value" id="gas">--</span>
+                    <span class="gas-unit">MQ2 analog value</span>
+                </div>
+
+                <div class="gas-meter">
+                    <div class="gas-track"></div>
+                    <div class="gas-marker" id="gasMarker"></div>
+                </div>
+            </section>
+        </section>
+
+        <section class="metrics-grid">
+            <article class="metric-card">
+                <div class="metric-top">
+                    <p class="metric-label">Temperature</p>
+                    <span class="metric-icon temp-icon">C</span>
+                </div>
+                <p class="metric-value"><span id="temp">--</span> <span class="metric-unit">&deg;C</span></p>
+            </article>
+
+            <article class="metric-card">
+                <div class="metric-top">
+                    <p class="metric-label">Humidity</p>
+                    <span class="metric-icon hum-icon">%</span>
+                </div>
+                <p class="metric-value"><span id="hum">--</span> <span class="metric-unit">%</span></p>
+            </article>
+
+            <article class="metric-card">
+                <div class="metric-top">
+                    <p class="metric-label">Air Risk</p>
+                    <span class="metric-icon gas-icon">!</span>
+                </div>
+                <p class="metric-value" id="riskLevel">--</p>
+            </article>
+        </section>
+
+        <section class="devices-grid">
+            <article class="device-card" id="fanCard">
+                <div class="device-top">
+                    <p class="device-label">Exhaust Fan</p>
+                    <span class="device-icon fan-icon">F</span>
+                </div>
+                <span class="device-state" id="fan">--</span>
+            </article>
+
+            <article class="device-card warning" id="buzzerCard">
+                <div class="device-top">
+                    <p class="device-label">Buzzer</p>
+                    <span class="device-icon buzzer-icon">B</span>
+                </div>
+                <span class="device-state" id="buzzer">--</span>
+            </article>
+        </section>
+    </main>
+
+    <script>
+        const TEMP_LIMIT = 40;
+        const GAS_LIMIT = 600;
+        const GAS_SCALE_MAX = 1200;
+
+        const elements = {
+            connection: document.getElementById("connection"),
+            connectionText: document.getElementById("connectionText"),
+            statusPanel: document.getElementById("statusPanel"),
+            statusTitle: document.getElementById("statusTitle"),
+            statusMessage: document.getElementById("statusMessage"),
+            light: document.getElementById("alight"),
+            temp: document.getElementById("temp"),
+            hum: document.getElementById("hum"),
+            gas: document.getElementById("gas"),
+            gasMarker: document.getElementById("gasMarker"),
+            riskLevel: document.getElementById("riskLevel"),
+            fan: document.getElementById("fan"),
+            buzzer: document.getElementById("buzzer"),
+            fanCard: document.getElementById("fanCard"),
+            buzzerCard: document.getElementById("buzzerCard"),
+            lastUpdate: document.getElementById("lastUpdate")
+        };
+
+        function setConnection(state, text) {
+            elements.connection.classList.remove("connected", "disconnected");
+            elements.connection.classList.add(state);
+            elements.connectionText.textContent = text;
+        }
+
+        function formatNumber(value, decimals = 1) {
+            const number = Number(value);
+            if (!Number.isFinite(number)) {
+                return "--";
+            }
+            return Number.isInteger(number) ? String(number) : number.toFixed(decimals);
+        }
+
+        function setDevice(card, output, status) {
+            const isOn = String(status).toUpperCase() === "ON";
+            card.classList.toggle("on", isOn);
+            output.textContent = isOn ? "ON" : "OFF";
+        }
+
+        function updateDashboard(data) {
+            const temperature = Number(data.temperature);
+            const humidity = Number(data.humidity);
+            const gas = Number(data.gas ?? data.gas_value);
+            const highTemp = temperature > TEMP_LIMIT;
+            const highGas = gas > GAS_LIMIT;
+            const isAlert = highTemp || highGas;
+
+            elements.temp.textContent = formatNumber(temperature);
+            elements.hum.textContent = formatNumber(humidity);
+            elements.gas.textContent = Number.isFinite(gas) ? String(Math.round(gas)) : "--";
+            elements.lastUpdate.textContent = new Date().toLocaleTimeString([], {
+                hour: "2-digit",
+                minute: "2-digit",
+                second: "2-digit"
+            });
+
+            const markerPercent = Number.isFinite(gas)
+                ? Math.max(0, Math.min(100, (gas / GAS_SCALE_MAX) * 100))
+                : 0;
+            elements.gasMarker.style.left = `calc(${markerPercent}% - 8px)`;
+
+            if (highTemp && highGas) {
+                elements.statusTitle.textContent = "Critical";
+                elements.statusMessage.textContent = "High gas and temperature detected.";
+                elements.riskLevel.textContent = "HIGH";
+            } else if (highGas) {
+                elements.statusTitle.textContent = "Gas Alert";
+                elements.statusMessage.textContent = "Gas level has crossed the safety limit.";
+                elements.riskLevel.textContent = "HIGH";
+            } else if (highTemp) {
+                elements.statusTitle.textContent = "Heat Alert";
+                elements.statusMessage.textContent = "Temperature has crossed the safety limit.";
+                elements.riskLevel.textContent = "MEDIUM";
+            } else {
+                elements.statusTitle.textContent = "Normal";
+                elements.statusMessage.textContent = "Air readings are within the safe range.";
+                elements.riskLevel.textContent = "LOW";
+            }
+
+            elements.statusPanel.classList.toggle("alert", isAlert);
+            elements.light.src = isAlert ? "images/light_on.png" : "images/light off.png";
+
+            setDevice(elements.fanCard, elements.fan, data.fan_status);
+            setDevice(elements.buzzerCard, elements.buzzer, data.buzzer_status);
+        }
+
+        async function loadLatestReading() {
+            try {
+                const response = await fetch("/api/latest");
+                if (!response.ok) {
+                    return;
+                }
+                const latest = await response.json();
+                if (latest && Object.keys(latest).length > 0) {
+                    updateDashboard(latest);
+                }
+            } catch (error) {
+                console.log("Latest reading unavailable", error);
+            }
+        }
+
+        if (typeof io === "function") {
+            const socket = io();
+
+            socket.on("connect", () => {
+                setConnection("connected", "Live");
+                loadLatestReading();
+            });
+
+            socket.on("disconnect", () => {
+                setConnection("disconnected", "Offline");
+            });
+
+            socket.on("sensorUpdate", updateDashboard);
+        } else {
+            setConnection("disconnected", "Offline");
+            loadLatestReading();
+        }
+    </script>
+</body>
+</html>
