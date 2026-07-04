@@ -11,6 +11,7 @@ The ESP32 reads temperature, humidity, and MQ2 gas values, controls the exhaust 
 - Browser-style refresh button
 - Sidebar navigation with Live Dashboard, Graphs, and Alerts
 - ESP32 online/offline status from the server
+- Live alert status: Normal, Gas Alert, Temperature Alert, or Gas and Temperature Alert
 - Live gas, humidity, and temperature gauges
 - Fan and buzzer ON/OFF status cards
 - MySQL-backed graphs for gas, temperature, humidity, and combined data
