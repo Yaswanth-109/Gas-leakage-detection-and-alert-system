@@ -1,0 +1,1461 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Air Monitoring Dashboard</title>
+    <script src="/socket.io/socket.io.js"></script>
+    <style>
+        :root {
+            --blue: #0965d8;
+            --cyan: #12b8c7;
+            --green: #19bf66;
+            --yellow: #f6c945;
+            --orange: #f08b31;
+            --red: #e94343;
+            --bg: #f4f9fc;
+            --surface: #ffffff;
+            --surface-2: #eef7fb;
+            --ink: #071628;
+            --muted: #65758a;
+            --line: #dce8ef;
+            --sidebar: #061a2e;
+            --shadow: 0 18px 45px rgba(7, 22, 40, 0.1);
+            --chart-grid: rgba(101, 117, 138, 0.18);
+        }
+
+        [data-theme="dark"] {
+            --bg: #07111f;
+            --surface: #0d1d31;
+            --surface-2: #102842;
+            --ink: #edf7ff;
+            --muted: #a8b8c9;
+            --line: #1e3854;
+            --sidebar: #030b14;
+            --shadow: 0 18px 45px rgba(0, 0, 0, 0.34);
+            --chart-grid: rgba(168, 184, 201, 0.18);
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            font-family: "Segoe UI", Verdana, sans-serif;
+            background:
+                radial-gradient(circle at top left, rgba(18, 184, 199, 0.22), transparent 32rem),
+                linear-gradient(135deg, rgba(9, 101, 216, 0.08), transparent 34rem),
+                var(--bg);
+            color: var(--ink);
+        }
+
+        html {
+            scroll-behavior: smooth;
+        }
+
+        button,
+        input,
+        select {
+            font: inherit;
+        }
+
+        .app {
+            display: grid;
+            grid-template-columns: 280px minmax(0, 1fr);
+            min-height: 100vh;
+        }
+
+        .sidebar {
+            position: sticky;
+            top: 0;
+            height: 100vh;
+            display: grid;
+            grid-template-rows: auto 1fr auto;
+            gap: 24px;
+            padding: 22px 16px;
+            color: #eaf8ff;
+            background:
+                linear-gradient(180deg, rgba(9, 101, 216, 0.34), transparent 36%),
+                var(--sidebar);
+            border-right: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .brand {
+            display: grid;
+            grid-template-columns: 68px minmax(0, 1fr);
+            gap: 12px;
+            align-items: center;
+            padding: 6px 8px;
+        }
+
+        .brand img {
+            width: 68px;
+            height: 56px;
+            object-fit: contain;
+            border-radius: 8px;
+            background: #ffffff;
+            padding: 4px;
+            transition: transform 0.22s ease, box-shadow 0.22s ease;
+        }
+
+        .brand:hover img {
+            transform: translateY(-2px) scale(1.03);
+            box-shadow: 0 12px 28px rgba(18, 184, 199, 0.22);
+        }
+
+        .brand h1 {
+            margin: 0;
+            font-size: 18px;
+            line-height: 1.05;
+            letter-spacing: 0;
+        }
+
+        .brand span {
+            color: #4fd6ff;
+        }
+
+        .brand p {
+            margin: 5px 0 0;
+            color: #bed6e8;
+            font-size: 12px;
+            letter-spacing: 0;
+            text-transform: uppercase;
+        }
+
+        .nav {
+            display: grid;
+            gap: 10px;
+            align-content: start;
+        }
+
+        .nav-button {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            width: 100%;
+            min-height: 54px;
+            padding: 0 14px;
+            border: 1px solid transparent;
+            border-radius: 8px;
+            background: transparent;
+            color: #eaf8ff;
+            cursor: pointer;
+            text-align: left;
+            transition: background 0.2s ease, border 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .nav-button:hover,
+        .nav-button.active {
+            background: linear-gradient(135deg, rgba(9, 101, 216, 0.9), rgba(18, 184, 199, 0.78));
+            border-color: rgba(255, 255, 255, 0.18);
+            transform: translateY(-1px);
+            box-shadow: 0 12px 24px rgba(9, 101, 216, 0.25);
+        }
+
+        .nav-button:active,
+        .icon-button:active,
+        .primary-button:active {
+            transform: translateY(0) scale(0.98);
+        }
+
+        .nav-icon {
+            display: grid;
+            place-items: center;
+            width: 28px;
+            height: 28px;
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.1);
+            font-weight: 900;
+        }
+
+        .side-status {
+            display: grid;
+            gap: 12px;
+            padding: 16px;
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            transition: transform 0.22s ease, border 0.22s ease, background 0.22s ease;
+        }
+
+        .side-status:hover {
+            transform: translateY(-2px);
+            border-color: rgba(18, 184, 199, 0.45);
+            background: rgba(255, 255, 255, 0.11);
+        }
+
+        .status-line {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+        }
+
+        .dot {
+            width: 11px;
+            height: 11px;
+            border-radius: 50%;
+            background: var(--red);
+            box-shadow: 0 0 0 4px rgba(233, 67, 67, 0.17);
+        }
+
+        .online .dot {
+            background: var(--green);
+            box-shadow: 0 0 0 4px rgba(25, 191, 102, 0.17);
+        }
+
+        .side-status h2 {
+            margin: 0;
+            font-size: 14px;
+            color: #cde8f6;
+            text-transform: uppercase;
+            letter-spacing: 0;
+        }
+
+        .side-status strong {
+            color: #ffffff;
+            font-size: 22px;
+        }
+
+        .side-status p {
+            margin: 0;
+            color: #cde8f6;
+            font-size: 13px;
+        }
+
+        .side-alert {
+            display: grid;
+            gap: 8px;
+            padding-top: 12px;
+            border-top: 1px solid rgba(255, 255, 255, 0.12);
+        }
+
+        .side-alert strong {
+            font-size: 16px;
+        }
+
+        .side-alert.danger strong {
+            color: #ffb4b4;
+        }
+
+        .side-alert.warn strong {
+            color: #ffe28a;
+        }
+
+        .topbar {
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 18px;
+            min-height: 86px;
+            padding: 18px 26px;
+            background: rgba(255, 255, 255, 0.78);
+            border-bottom: 1px solid var(--line);
+            backdrop-filter: blur(16px);
+        }
+
+        [data-theme="dark"] .topbar {
+            background: rgba(13, 29, 49, 0.82);
+        }
+
+        .title h2 {
+            margin: 0;
+            font-size: clamp(24px, 3vw, 34px);
+            letter-spacing: 0;
+        }
+
+        .title p {
+            margin: 8px 0 0;
+            color: var(--muted);
+            font-size: 14px;
+        }
+
+        .top-actions {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .icon-button {
+            display: grid;
+            place-items: center;
+            min-width: 44px;
+            height: 44px;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            background: var(--surface);
+            color: var(--ink);
+            cursor: pointer;
+            box-shadow: 0 9px 22px rgba(7, 22, 40, 0.08);
+            transition: transform 0.18s ease, border 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+        }
+
+        .icon-button:hover,
+        .icon-button.active {
+            border-color: var(--cyan);
+            transform: translateY(-1px);
+            box-shadow: 0 12px 28px rgba(18, 184, 199, 0.18);
+            background: linear-gradient(135deg, rgba(18, 184, 199, 0.12), var(--surface));
+        }
+
+        .content {
+            min-width: 0;
+        }
+
+        .view {
+            display: none;
+            padding: 24px 26px 34px;
+            max-width: 1540px;
+            margin: 0 auto;
+            animation: showView 0.24s ease both;
+        }
+
+        .view.active {
+            display: block;
+        }
+
+        @keyframes showView {
+            from {
+                opacity: 0;
+                transform: translateY(8px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .grid {
+            display: grid;
+            gap: 18px;
+        }
+
+        .live-grid {
+            grid-template-columns: minmax(320px, 0.72fr) minmax(640px, 1.28fr);
+            align-items: stretch;
+        }
+
+        .reading-grid {
+            grid-template-columns: repeat(3, minmax(190px, 1fr));
+        }
+
+        .device-grid {
+            grid-column: 1 / -1;
+            grid-template-columns: repeat(2, minmax(280px, 1fr));
+        }
+
+        .card {
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            background: var(--surface);
+            box-shadow: var(--shadow);
+            transition: transform 0.22s ease, box-shadow 0.22s ease, border-color 0.22s ease, background 0.22s ease;
+        }
+
+        .card:hover {
+            transform: translateY(-4px);
+            border-color: rgba(18, 184, 199, 0.55);
+            box-shadow: 0 24px 55px rgba(7, 22, 40, 0.14);
+        }
+
+        [data-theme="dark"] .card:hover {
+            box-shadow: 0 24px 55px rgba(0, 0, 0, 0.38);
+        }
+
+        .card-pad {
+            padding: 22px;
+        }
+
+        .card-title {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 18px;
+        }
+
+        .card-title h3 {
+            margin: 0;
+            font-size: 18px;
+            letter-spacing: 0;
+        }
+
+        .pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            min-height: 30px;
+            padding: 5px 11px;
+            border-radius: 999px;
+            background: rgba(25, 191, 102, 0.13);
+            color: var(--green);
+            font-weight: 800;
+            font-size: 13px;
+        }
+
+        .pill.offline,
+        .pill.danger {
+            background: rgba(233, 67, 67, 0.13);
+            color: var(--red);
+        }
+
+        .pill.warn {
+            background: rgba(246, 201, 69, 0.18);
+            color: #a36800;
+        }
+
+        .device-status-card {
+            display: grid;
+            min-height: 316px;
+            align-content: space-between;
+            background:
+                linear-gradient(135deg, rgba(18, 184, 199, 0.18), transparent),
+                var(--surface);
+        }
+
+        .device-status-card .big {
+            margin: 0;
+            font-size: 42px;
+            font-weight: 900;
+            letter-spacing: 0;
+        }
+
+        .muted {
+            color: var(--muted);
+        }
+
+        .gauge-card {
+            display: grid;
+            gap: 8px;
+            min-height: 316px;
+            justify-items: center;
+            align-content: space-between;
+        }
+
+        .gauge-card:hover .gauge-box {
+            transform: scale(1.035);
+        }
+
+        .gauge-card:hover .pill {
+            transform: translateY(-1px);
+        }
+
+        .gauge-box {
+            position: relative;
+            width: min(230px, 100%);
+            aspect-ratio: 1;
+            transition: transform 0.22s ease;
+        }
+
+        .gauge-box canvas {
+            width: 100%;
+            height: 100%;
+        }
+
+        .gauge-center {
+            position: absolute;
+            inset: 0;
+            display: grid;
+            place-items: center;
+            pointer-events: none;
+        }
+
+        .gauge-center strong {
+            display: block;
+            font-size: 34px;
+            line-height: 1;
+            text-align: center;
+        }
+
+        .gauge-center span {
+            display: block;
+            margin-top: 6px;
+            color: var(--muted);
+            font-size: 14px;
+            text-align: center;
+        }
+
+        .device-card {
+            display: grid;
+            grid-template-columns: 56px minmax(0, 1fr) auto;
+            gap: 16px;
+            align-items: center;
+            min-height: 98px;
+            padding: 18px;
+            overflow: hidden;
+        }
+
+        .device-card:hover .device-art {
+            transform: rotate(-3deg) scale(1.06);
+        }
+
+        .device-card:hover .toggle {
+            box-shadow: 0 0 0 4px rgba(18, 184, 199, 0.12);
+        }
+
+        .device-art {
+            display: grid;
+            place-items: center;
+            width: 56px;
+            height: 56px;
+            border-radius: 8px;
+            background: rgba(9, 101, 216, 0.13);
+            color: var(--blue);
+            font-weight: 900;
+            font-size: 24px;
+            transition: transform 0.22s ease;
+        }
+
+        .device-art.buzzer {
+            background: rgba(240, 139, 49, 0.15);
+            color: var(--orange);
+        }
+
+        .device-card h4 {
+            margin: 0 0 5px;
+            font-size: 17px;
+        }
+
+        .live-alert-card {
+            grid-column: 1 / -1;
+            display: grid;
+            grid-template-columns: 74px minmax(0, 1fr) auto;
+            gap: 18px;
+            align-items: center;
+            min-height: 118px;
+            overflow: hidden;
+        }
+
+        .live-alert-card.safe {
+            background:
+                linear-gradient(135deg, rgba(25, 191, 102, 0.12), transparent),
+                var(--surface);
+        }
+
+        .live-alert-card.warn {
+            background:
+                linear-gradient(135deg, rgba(246, 201, 69, 0.18), transparent),
+                var(--surface);
+        }
+
+        .live-alert-card.danger {
+            background:
+                linear-gradient(135deg, rgba(233, 67, 67, 0.13), transparent),
+                var(--surface);
+        }
+
+        .live-alert-icon {
+            display: grid;
+            place-items: center;
+            width: 64px;
+            height: 64px;
+            border-radius: 8px;
+            background: rgba(25, 191, 102, 0.16);
+            color: var(--green);
+            font-size: 28px;
+            font-weight: 900;
+            transition: transform 0.22s ease;
+        }
+
+        .live-alert-card:hover .live-alert-icon {
+            transform: scale(1.06) rotate(-2deg);
+        }
+
+        .live-alert-card.warn .live-alert-icon {
+            background: rgba(246, 201, 69, 0.2);
+            color: #a36800;
+        }
+
+        .live-alert-card.danger .live-alert-icon {
+            background: rgba(233, 67, 67, 0.16);
+            color: var(--red);
+        }
+
+        .live-alert-card h4 {
+            margin: 0 0 6px;
+            font-size: 20px;
+        }
+
+        .live-alert-card p {
+            margin: 0;
+            color: var(--muted);
+        }
+
+        .live-alert-time {
+            color: var(--muted);
+            font-size: 13px;
+            font-weight: 800;
+            white-space: nowrap;
+        }
+
+        .toggle {
+            width: 56px;
+            height: 32px;
+            border-radius: 999px;
+            background: #b7c4d4;
+            position: relative;
+            transition: background 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .toggle::after {
+            content: "";
+            position: absolute;
+            top: 4px;
+            left: 4px;
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            background: #ffffff;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
+            transition: left 0.2s ease;
+        }
+
+        .toggle.on {
+            background: linear-gradient(135deg, var(--blue), var(--cyan));
+        }
+
+        .toggle.on::after {
+            left: 28px;
+        }
+
+        .filter-card {
+            display: grid;
+            grid-template-columns: 1fr 1fr 170px auto;
+            gap: 14px;
+            align-items: end;
+            margin-bottom: 18px;
+        }
+
+        .field {
+            display: grid;
+            gap: 7px;
+        }
+
+        .field label {
+            color: var(--muted);
+            font-size: 13px;
+            font-weight: 800;
+        }
+
+        .field input,
+        .field select {
+            width: 100%;
+            height: 44px;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            padding: 0 12px;
+            color: var(--ink);
+            background: var(--surface);
+            transition: border 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+        }
+
+        .field input:hover,
+        .field select:hover,
+        .field input:focus,
+        .field select:focus {
+            outline: none;
+            border-color: var(--cyan);
+            box-shadow: 0 0 0 4px rgba(18, 184, 199, 0.12);
+        }
+
+        .primary-button {
+            height: 44px;
+            border: 0;
+            border-radius: 8px;
+            padding: 0 18px;
+            color: #ffffff;
+            background: linear-gradient(135deg, var(--blue), var(--cyan));
+            cursor: pointer;
+            font-weight: 900;
+            box-shadow: 0 10px 25px rgba(9, 101, 216, 0.22);
+            transition: transform 0.18s ease, box-shadow 0.18s ease, filter 0.18s ease;
+        }
+
+        .primary-button:hover {
+            transform: translateY(-2px);
+            filter: saturate(1.08);
+            box-shadow: 0 16px 34px rgba(9, 101, 216, 0.28);
+        }
+
+        .graph-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .graph-card {
+            min-height: 340px;
+        }
+
+        .graph-card:hover .chart {
+            transform: scale(1.01);
+        }
+
+        .graph-card.hidden {
+            display: none;
+        }
+
+        .chart {
+            width: 100%;
+            height: 260px;
+            transition: transform 0.22s ease;
+        }
+
+        .alert-list {
+            display: grid;
+            gap: 12px;
+        }
+
+        .alert-item {
+            display: grid;
+            grid-template-columns: 76px minmax(0, 1fr);
+            gap: 16px;
+            align-items: center;
+            min-height: 92px;
+            border-left: 5px solid var(--red);
+            transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .alert-item:hover {
+            transform: translateX(4px);
+            box-shadow: 0 16px 34px rgba(7, 22, 40, 0.1);
+        }
+
+        .alert-item.warning {
+            border-left-color: var(--yellow);
+        }
+
+        .alert-icon {
+            display: grid;
+            place-items: center;
+            width: 54px;
+            height: 54px;
+            border-radius: 50%;
+            color: #ffffff;
+            background: var(--red);
+            font-weight: 900;
+        }
+
+        .alert-item.warning .alert-icon {
+            background: var(--yellow);
+            color: #3d2b00;
+        }
+
+        .alert-item h3 {
+            margin: 0 0 6px;
+            font-size: 18px;
+        }
+
+        .alert-item p {
+            margin: 0;
+            color: var(--muted);
+        }
+
+        .empty-state {
+            padding: 28px;
+            text-align: center;
+            color: var(--muted);
+            border: 1px dashed var(--line);
+            border-radius: 8px;
+        }
+
+        @media (max-width: 1380px) {
+            .live-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .device-status-card {
+                min-height: 230px;
+            }
+        }
+
+        @media (max-width: 1180px) {
+            .app {
+                grid-template-columns: 1fr;
+            }
+
+            .sidebar {
+                position: relative;
+                height: auto;
+            }
+
+            .nav {
+                grid-template-columns: repeat(3, minmax(0, 1fr));
+            }
+
+            .filter-card,
+            .graph-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        @media (max-width: 720px) {
+            .topbar {
+                align-items: stretch;
+                flex-direction: column;
+            }
+
+            .top-actions,
+            .reading-grid,
+            .device-grid,
+            .nav {
+                grid-template-columns: 1fr;
+            }
+
+            .live-alert-card {
+                grid-template-columns: 1fr;
+            }
+
+            .live-alert-time {
+                white-space: normal;
+            }
+
+            .top-actions {
+                display: grid;
+            }
+
+            .view {
+                padding: 16px;
+            }
+
+            .card-pad {
+                padding: 18px;
+            }
+
+            .device-status-card .big {
+                font-size: 34px;
+            }
+
+            .gauge-card {
+                min-height: 260px;
+            }
+        }
+    </style>
+</head>
+<body data-theme="light">
+    <div class="app">
+        <aside class="sidebar">
+            <div class="brand">
+                <img src="images/logo.png" alt="Smart Air Monitoring logo">
+                <div>
+                    <h1>SMART <span>AIR</span></h1>
+                    <p>Monitoring</p>
+                </div>
+            </div>
+
+            <nav class="nav" aria-label="Main navigation">
+                <button class="nav-button active" data-view="dashboard"><span class="nav-icon">1</span>Live Dashboard</button>
+                <button class="nav-button" data-view="graphs"><span class="nav-icon">2</span>Graphs</button>
+                <button class="nav-button" data-view="alerts"><span class="nav-icon">3</span>Alerts</button>
+            </nav>
+
+            <section class="side-status offline" id="sideStatus">
+                <div class="status-line">
+                    <h2>ESP32 Device</h2>
+                    <span class="dot"></span>
+                </div>
+                <strong id="sideDeviceState">Offline</strong>
+                <p>Last update: <span id="sideLastSeen">--</span></p>
+                <p>Server: <span id="serverState">Connecting</span></p>
+                <div class="side-alert safe" id="sideAlertBox">
+                    <p>Current alert</p>
+                    <strong id="sideAlertState">Normal</strong>
+                    <p id="sideAlertTime">Time: --</p>
+                </div>
+            </section>
+        </aside>
+
+        <main class="content">
+            <header class="topbar">
+                <div class="title">
+                    <h2 id="pageTitle">Live Dashboard</h2>
+                    <p><span id="topDeviceState">ESP32 Offline</span> | Last updated: <span id="topLastSeen">--</span></p>
+                </div>
+                <div class="top-actions">
+                    <button class="icon-button active" id="lightThemeButton" title="Light theme">☀️</button>
+                    <button class="icon-button" id="darkThemeButton" title="Dark theme">🌙</button>
+                    <button class="icon-button" id="refreshButton" title="Refresh" aria-label="Refresh dashboard">&#8635;</button>
+                </div>
+            </header>
+
+            <section class="view active" id="dashboardView">
+                <div class="grid live-grid">
+                    <article class="card card-pad device-status-card" id="deviceStatusCard">
+                        <div class="card-title">
+                            <h3>Device Status</h3>
+                            <span class="pill offline" id="devicePill">Offline</span>
+                        </div>
+                        <p class="big" id="deviceBigState">ESP32 Offline</p>
+                        <p class="muted">Live values clear automatically when server stops receiving ESP32 data.</p>
+                    </article>
+
+                    <section class="grid reading-grid">
+                        <article class="card card-pad gauge-card">
+                            <div class="card-title">
+                                <h3>Gas</h3>
+                                <span class="pill" id="gasPill">--</span>
+                            </div>
+                            <div class="gauge-box">
+                                <canvas id="gasGauge"></canvas>
+                                <div class="gauge-center"><div><strong id="gasValue">--</strong><span>ppm</span></div></div>
+                            </div>
+                        </article>
+                        <article class="card card-pad gauge-card">
+                            <div class="card-title">
+                                <h3>Humidity</h3>
+                                <span class="pill" id="humidityPill">--</span>
+                            </div>
+                            <div class="gauge-box">
+                                <canvas id="humidityGauge"></canvas>
+                                <div class="gauge-center"><div><strong id="humidityValue">--</strong><span>%</span></div></div>
+                            </div>
+                        </article>
+                        <article class="card card-pad gauge-card">
+                            <div class="card-title">
+                                <h3>Temperature</h3>
+                                <span class="pill" id="temperaturePill">--</span>
+                            </div>
+                            <div class="gauge-box">
+                                <canvas id="temperatureGauge"></canvas>
+                                <div class="gauge-center"><div><strong id="temperatureValue">--</strong><span>C</span></div></div>
+                            </div>
+                        </article>
+                    </section>
+
+                    <section class="grid device-grid">
+                        <article class="card device-card">
+                            <div class="device-art">F</div>
+                            <div>
+                                <h4>Fan</h4>
+                                <p class="muted">Status: <strong id="fanState">OFF</strong></p>
+                            </div>
+                            <div class="toggle" id="fanToggle"></div>
+                        </article>
+                        <article class="card device-card">
+                            <div class="device-art buzzer">B</div>
+                            <div>
+                                <h4>Buzzer</h4>
+                                <p class="muted">Status: <strong id="buzzerState">OFF</strong></p>
+                            </div>
+                            <div class="toggle" id="buzzerToggle"></div>
+                        </article>
+                    </section>
+
+                    <article class="card card-pad live-alert-card safe" id="liveAlertCard">
+                        <div class="live-alert-icon" id="liveAlertIcon">OK</div>
+                        <div>
+                            <h4 id="liveAlertTitle">Alert Status: Normal</h4>
+                            <p id="liveAlertMessage">No gas or temperature alert is active.</p>
+                        </div>
+                        <div class="live-alert-time" id="liveAlertTime">Time: --</div>
+                    </article>
+                </div>
+            </section>
+
+            <section class="view" id="graphsView">
+                <section class="card card-pad filter-card">
+                    <div class="field">
+                        <label for="metricSelect">Data</label>
+                        <select id="metricSelect">
+                            <option value="all">All data</option>
+                            <option value="gas">Gas only</option>
+                            <option value="temperature">Temperature only</option>
+                            <option value="humidity">Humidity only</option>
+                        </select>
+                    </div>
+                    <div class="field">
+                        <label for="startInput">Start date and time</label>
+                        <input id="startInput" type="datetime-local">
+                    </div>
+                    <div class="field">
+                        <label for="minutesSelect">Time range</label>
+                        <select id="minutesSelect">
+                            <option value="15">15 minutes</option>
+                            <option value="30">30 minutes</option>
+                            <option value="60">1 hour</option>
+                            <option value="180">3 hours</option>
+                            <option value="720">12 hours</option>
+                            <option value="1440">24 hours</option>
+                        </select>
+                    </div>
+                    <button class="primary-button" id="viewGraphsButton">View</button>
+                </section>
+
+                <section class="grid graph-grid">
+                    <article class="card card-pad graph-card" data-chart-card="gas">
+                        <div class="card-title"><h3>Gas Data</h3><span class="pill">ppm</span></div>
+                        <canvas class="chart" id="gasChart"></canvas>
+                    </article>
+                    <article class="card card-pad graph-card" data-chart-card="temperature">
+                        <div class="card-title"><h3>Temperature Data</h3><span class="pill">C</span></div>
+                        <canvas class="chart" id="temperatureChart"></canvas>
+                    </article>
+                    <article class="card card-pad graph-card" data-chart-card="humidity">
+                        <div class="card-title"><h3>Humidity Data</h3><span class="pill">%</span></div>
+                        <canvas class="chart" id="humidityChart"></canvas>
+                    </article>
+                    <article class="card card-pad graph-card" data-chart-card="all">
+                        <div class="card-title"><h3>Gas, Temperature, Humidity</h3><span class="pill">Combined</span></div>
+                        <canvas class="chart" id="allChart"></canvas>
+                    </article>
+                </section>
+            </section>
+
+            <section class="view" id="alertsView">
+                <article class="card card-pad">
+                    <div class="card-title">
+                        <h3>Alerts Sorted By Time And Date</h3>
+                        <button class="primary-button" id="refreshAlertsButton">Refresh Alerts</button>
+                    </div>
+                    <div class="alert-list" id="alertList"></div>
+                </article>
+            </section>
+        </main>
+    </div>
+
+    <script>
+        const TEMP_LIMIT = 40;
+        const GAS_LIMIT = 600;
+        const GAS_MAX = 1000;
+        let latestReading = null;
+        let historyRows = [];
+
+        const $ = (id) => document.getElementById(id);
+        const els = {
+            pageTitle: $("pageTitle"),
+            sideStatus: $("sideStatus"),
+            sideDeviceState: $("sideDeviceState"),
+            sideLastSeen: $("sideLastSeen"),
+            serverState: $("serverState"),
+            sideAlertBox: $("sideAlertBox"),
+            sideAlertState: $("sideAlertState"),
+            sideAlertTime: $("sideAlertTime"),
+            topDeviceState: $("topDeviceState"),
+            topLastSeen: $("topLastSeen"),
+            deviceStatusCard: $("deviceStatusCard"),
+            devicePill: $("devicePill"),
+            deviceBigState: $("deviceBigState"),
+            gasValue: $("gasValue"),
+            humidityValue: $("humidityValue"),
+            temperatureValue: $("temperatureValue"),
+            gasPill: $("gasPill"),
+            humidityPill: $("humidityPill"),
+            temperaturePill: $("temperaturePill"),
+            fanState: $("fanState"),
+            buzzerState: $("buzzerState"),
+            fanToggle: $("fanToggle"),
+            buzzerToggle: $("buzzerToggle"),
+            liveAlertCard: $("liveAlertCard"),
+            liveAlertIcon: $("liveAlertIcon"),
+            liveAlertTitle: $("liveAlertTitle"),
+            liveAlertMessage: $("liveAlertMessage"),
+            liveAlertTime: $("liveAlertTime"),
+            metricSelect: $("metricSelect"),
+            startInput: $("startInput"),
+            minutesSelect: $("minutesSelect"),
+            alertList: $("alertList")
+        };
+
+        const gauges = {
+            gas: $("gasGauge"),
+            humidity: $("humidityGauge"),
+            temperature: $("temperatureGauge")
+        };
+
+        const charts = {
+            gas: $("gasChart"),
+            temperature: $("temperatureChart"),
+            humidity: $("humidityChart"),
+            all: $("allChart")
+        };
+
+        function number(value) {
+            const parsed = Number(value);
+            return Number.isFinite(parsed) ? parsed : null;
+        }
+
+        function format(value, digits = 1) {
+            const parsed = number(value);
+            if (parsed === null) {
+                return "--";
+            }
+            return Number.isInteger(parsed) ? String(parsed) : parsed.toFixed(digits);
+        }
+
+        function timeText(value) {
+            if (!value) {
+                return "--";
+            }
+            const date = new Date(value);
+            if (Number.isNaN(date.getTime())) {
+                return String(value);
+            }
+            return date.toLocaleString([], {
+                year: "numeric",
+                month: "short",
+                day: "2-digit",
+                hour: "2-digit",
+                minute: "2-digit"
+            });
+        }
+
+        function classify(temperature, gas) {
+            const highTemp = temperature > TEMP_LIMIT;
+            const highGas = gas > GAS_LIMIT;
+
+            if (temperature > TEMP_LIMIT && gas > GAS_LIMIT) {
+                return { label: "Critical", level: "danger", highTemp, highGas };
+            }
+            if (gas > GAS_LIMIT) {
+                return { label: "Gas Alert", level: "danger", highTemp, highGas };
+            }
+            if (temperature > TEMP_LIMIT) {
+                return { label: "Heat Alert", level: "warn", highTemp, highGas };
+            }
+            return { label: "Safe", level: "safe", highTemp, highGas };
+        }
+
+        function getLiveAlert(status, temperature, gas) {
+            const normalized = String(status || "").toUpperCase();
+            if (normalized.includes("TEMPERATURE AND GAS")) {
+                return {
+                    title: "Alert Status: Gas and Temperature Alert",
+                    sideTitle: "Gas and Temperature Alert",
+                    message: `Gas ${format(gas, 0)} ppm and temperature ${format(temperature)} C crossed the limit.`,
+                    level: "danger",
+                    icon: "!"
+                };
+            }
+            if (normalized.includes("GAS")) {
+                return {
+                    title: "Alert Status: Gas Alert",
+                    sideTitle: "Gas Alert",
+                    message: `Gas ${format(gas, 0)} ppm crossed the limit.`,
+                    level: "danger",
+                    icon: "!"
+                };
+            }
+            if (normalized.includes("TEMPERATURE")) {
+                return {
+                    title: "Alert Status: Temperature Alert",
+                    sideTitle: "Temperature Alert",
+                    message: `Temperature ${format(temperature)} C crossed the limit.`,
+                    level: "warn",
+                    icon: "!"
+                };
+            }
+            return {
+                title: "Alert Status: Normal",
+                sideTitle: "Normal",
+                message: "No gas or temperature alert is active.",
+                level: "safe",
+                icon: "OK"
+            };
+        }
+
+        function resizeCanvas(canvas) {
+            const rect = canvas.getBoundingClientRect();
+            const ratio = window.devicePixelRatio || 1;
+            const width = Math.max(1, Math.round(rect.width * ratio));
+            const height = Math.max(1, Math.round(rect.height * ratio));
+            if (canvas.width !== width || canvas.height !== height) {
+                canvas.width = width;
+                canvas.height = height;
+            }
+            const ctx = canvas.getContext("2d");
+            ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+            return { ctx, width: rect.width, height: rect.height };
+        }
+
+        function drawGauge(canvas, value, max, colors) {
+            const { ctx, width, height } = resizeCanvas(canvas);
+            ctx.clearRect(0, 0, width, height);
+            const centerX = width / 2;
+            const centerY = height / 2 + 24;
+            const radius = Math.min(width, height) / 2 - 22;
+            const start = Math.PI;
+            const end = Math.PI * 2;
+            const percent = value === null ? 0 : Math.max(0, Math.min(1, value / max));
+
+            ctx.lineCap = "round";
+            ctx.lineWidth = 17;
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, radius, start, end);
+            ctx.strokeStyle = getComputedStyle(document.body).getPropertyValue("--line");
+            ctx.stroke();
+
+            const gradient = ctx.createLinearGradient(20, 0, width - 20, 0);
+            colors.forEach((entry) => gradient.addColorStop(entry[0], entry[1]));
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, radius, start, start + percent * Math.PI);
+            ctx.strokeStyle = gradient;
+            ctx.stroke();
+        }
+
+        function drawLineChart(canvas, rows, series, maxValue) {
+            const { ctx, width, height } = resizeCanvas(canvas);
+            ctx.clearRect(0, 0, width, height);
+            const pad = { left: 52, right: 20, top: 20, bottom: 42 };
+            const chartW = width - pad.left - pad.right;
+            const chartH = height - pad.top - pad.bottom;
+            const styles = getComputedStyle(document.body);
+
+            ctx.strokeStyle = styles.getPropertyValue("--chart-grid");
+            ctx.lineWidth = 1;
+            ctx.fillStyle = styles.getPropertyValue("--muted");
+            ctx.font = "12px Segoe UI";
+
+            for (let i = 0; i <= 4; i++) {
+                const y = pad.top + (i / 4) * chartH;
+                ctx.beginPath();
+                ctx.moveTo(pad.left, y);
+                ctx.lineTo(width - pad.right, y);
+                ctx.stroke();
+                ctx.fillText(String(Math.round(maxValue - (i / 4) * maxValue)), 8, y + 4);
+            }
+
+            if (!rows.length) {
+                ctx.textAlign = "center";
+                ctx.fillText("No database data for selected time", width / 2, height / 2);
+                ctx.textAlign = "left";
+                return;
+            }
+
+            series.forEach((item) => {
+                ctx.beginPath();
+                rows.forEach((row, index) => {
+                    const value = Math.max(0, Math.min(maxValue, Number(row[item.key]) || 0));
+                    const x = pad.left + (rows.length === 1 ? 0 : (index / (rows.length - 1)) * chartW);
+                    const y = pad.top + chartH - (value / maxValue) * chartH;
+                    if (index === 0) {
+                        ctx.moveTo(x, y);
+                    } else {
+                        ctx.lineTo(x, y);
+                    }
+                });
+                ctx.strokeStyle = item.color;
+                ctx.lineWidth = 2.5;
+                ctx.stroke();
+            });
+
+            const labels = [0, Math.floor(rows.length / 2), rows.length - 1].filter((item, index, all) => item >= 0 && all.indexOf(item) === index);
+            ctx.textAlign = "center";
+            labels.forEach((index) => {
+                const row = rows[index];
+                const x = pad.left + (rows.length === 1 ? 0 : (index / (rows.length - 1)) * chartW);
+                const date = new Date(row.created_at || row.time_bucket);
+                const label = Number.isNaN(date.getTime()) ? row.time_bucket : date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+                ctx.fillText(label, x, height - 12);
+            });
+            ctx.textAlign = "left";
+        }
+
+        function renderGauges(reading) {
+            const gas = reading ? number(reading.gas ?? reading.gas_value) : null;
+            const humidity = reading ? number(reading.humidity) : null;
+            const temperature = reading ? number(reading.temperature) : null;
+            drawGauge(gauges.gas, gas, GAS_MAX, [[0, "#19bf66"], [0.55, "#f6c945"], [1, "#e94343"]]);
+            drawGauge(gauges.humidity, humidity, 100, [[0, "#0965d8"], [1, "#12b8c7"]]);
+            drawGauge(gauges.temperature, temperature, 50, [[0, "#0965d8"], [0.65, "#f6c945"], [1, "#e94343"]]);
+        }
+
+        function setDeviceStatus(output, toggle, status) {
+            const isOn = String(status).toUpperCase() === "ON";
+            output.textContent = isOn ? "ON" : "OFF";
+            output.style.color = isOn ? "var(--green)" : "var(--red)";
+            toggle.classList.toggle("on", isOn);
+        }
+
+        function setLiveAlert(alert, receivedAt) {
+            const levelClass = alert.level === "danger" ? "danger" : alert.level === "warn" ? "warn" : "safe";
+            const alertTime = `Time: ${timeText(receivedAt)}`;
+
+            els.liveAlertCard.className = `card card-pad live-alert-card ${levelClass}`;
+            els.liveAlertIcon.textContent = alert.icon;
+            els.liveAlertTitle.textContent = alert.title;
+            els.liveAlertMessage.textContent = alert.message;
+            els.liveAlertTime.textContent = alertTime;
+
+            els.sideAlertBox.className = `side-alert ${levelClass}`;
+            els.sideAlertState.textContent = alert.sideTitle;
+            els.sideAlertTime.textContent = alertTime;
+        }
+
+        function setEsp32Status(online, lastSeen) {
+            els.sideStatus.classList.toggle("online", online);
+            els.sideStatus.classList.toggle("offline", !online);
+            els.deviceStatusCard.classList.toggle("online", online);
+            els.sideDeviceState.textContent = online ? "Online" : "Offline";
+            els.topDeviceState.textContent = online ? "ESP32 Online" : "ESP32 Offline";
+            els.deviceBigState.textContent = online ? "ESP32 Online" : "ESP32 Offline";
+            els.devicePill.textContent = online ? "Online" : "Offline";
+            els.devicePill.className = `pill ${online ? "" : "offline"}`.trim();
+            const last = timeText(lastSeen);
+            els.sideLastSeen.textContent = last;
+            els.topLastSeen.textContent = last;
+        }
+
+        function clearLiveReadings() {
+            latestReading = null;
+            els.gasValue.textContent = "--";
+            els.humidityValue.textContent = "--";
+            els.temperatureValue.textContent = "--";
+            els.gasPill.textContent = "--";
+            els.humidityPill.textContent = "--";
+            els.temperaturePill.textContent = "--";
+            els.gasPill.className = "pill";
+            els.temperaturePill.className = "pill";
+            setLiveAlert(getLiveAlert("NORMAL", null, null), null);
+            setDeviceStatus(els.fanState, els.fanToggle, "OFF");
+            setDeviceStatus(els.buzzerState, els.buzzerToggle, "OFF");
+            renderGauges(null);
+        }
+
+        function updateLive(reading) {
+            latestReading = reading;
+            const gas = number(reading.gas ?? reading.gas_value);
+            const humidity = number(reading.humidity);
+            const temperature = number(reading.temperature);
+            const state = classify(temperature, gas);
+
+            els.gasValue.textContent = format(gas, 0);
+            els.humidityValue.textContent = format(humidity, 0);
+            els.temperatureValue.textContent = format(temperature);
+            els.gasPill.textContent = state.highGas ? "Alert" : state.label;
+            els.temperaturePill.textContent = temperature > TEMP_LIMIT ? "High" : "Normal";
+            els.humidityPill.textContent = humidity >= 30 && humidity <= 70 ? "Comfort" : "Check";
+            els.gasPill.className = `pill ${state.level === "danger" ? "danger" : state.level === "warn" ? "warn" : ""}`.trim();
+            els.temperaturePill.className = `pill ${temperature > TEMP_LIMIT ? "warn" : ""}`.trim();
+            setDeviceStatus(els.fanState, els.fanToggle, reading.fan_status);
+            setDeviceStatus(els.buzzerState, els.buzzerToggle, reading.buzzer_status);
+            const receivedAt = reading.received_at || new Date().toISOString();
+            setLiveAlert(getLiveAlert(reading.status || state.label, temperature, gas), receivedAt);
+            setEsp32Status(true, receivedAt);
+            renderGauges(reading);
+        }
+
+        function renderGraphs() {
+            const metric = els.metricSelect.value;
+            document.querySelectorAll("[data-chart-card]").forEach((card) => {
+                const type = card.getAttribute("data-chart-card");
+                card.classList.toggle("hidden", metric !== "all" && type !== metric);
+            });
+
+            drawLineChart(charts.gas, historyRows, [{ key: "gas", color: "#19bf66" }], GAS_MAX);
+            drawLineChart(charts.temperature, historyRows, [{ key: "temperature", color: "#e94343" }], 50);
+            drawLineChart(charts.humidity, historyRows, [{ key: "humidity", color: "#12b8c7" }], 100);
+            drawLineChart(charts.all, historyRows, [
+                { key: "gas", color: "#19bf66" },
+                { key: "temperature", color: "#e94343" },
+                { key: "humidity", color: "#12b8c7" }
+            ], GAS_MAX);
+        }
+
+        async function fetchHistory() {
+            try {
+                const params = new URLSearchParams();
+                params.set("minutes", els.minutesSelect.value);
+                if (els.startInput.value) {
+                    params.set("start", els.startInput.value);
+                }
+                const response = await fetch(`/api/history?${params.toString()}`);
+                const payload = await response.json();
+                historyRows = payload.data || [];
+            } catch (error) {
+                console.error("History fetch failed:", error);
+                historyRows = [];
+            }
+            renderGraphs();
+        }
+
+        async function fetchAlerts() {
+            try {
+                const response = await fetch("/api/alerts?limit=100");
+                const payload = await response.json();
+                const rows = payload.data || [];
+                els.alertList.innerHTML = "";
+                if (!rows.length) {
+                    els.alertList.innerHTML = '<div class="empty-state">No alerts found for stored database readings.</div>';
+                    return;
+                }
+                rows.forEach((alert) => {
+                    const node = document.createElement("article");
+                    node.className = `card card-pad alert-item ${alert.level === "warning" ? "warning" : ""}`;
+                    node.innerHTML = `<div class="alert-icon">!</div><div><h3>${alert.type}</h3><p>${alert.message}</p><p>${timeText(alert.created_at)}</p></div>`;
+                    els.alertList.appendChild(node);
+                });
+            } catch (error) {
+                console.error("Alert fetch failed:", error);
+                els.alertList.innerHTML = '<div class="empty-state">Alerts could not be loaded right now.</div>';
+            }
+        }
+
+        async function refreshAll() {
+            await Promise.allSettled([fetchHistory(), fetchAlerts()]);
+            renderGauges(latestReading);
+        }
+
+        function showView(name) {
+            document.querySelectorAll(".view").forEach((view) => view.classList.remove("active"));
+            document.querySelectorAll(".nav-button").forEach((button) => button.classList.toggle("active", button.dataset.view === name));
+            $(`${name}View`).classList.add("active");
+            els.pageTitle.textContent = name === "dashboard" ? "Live Dashboard" : name === "graphs" ? "Graphs" : "Alerts";
+            if (name === "graphs") {
+                fetchHistory();
+            }
+            if (name === "alerts") {
+                fetchAlerts();
+            }
+        }
+
+        function setTheme(theme) {
+            document.body.setAttribute("data-theme", theme);
+            $("lightThemeButton").classList.toggle("active", theme === "light");
+            $("darkThemeButton").classList.toggle("active", theme === "dark");
+            renderGauges(latestReading);
+            renderGraphs();
+        }
+
+        document.querySelectorAll(".nav-button").forEach((button) => {
+            button.addEventListener("click", () => showView(button.dataset.view));
+        });
+        $("lightThemeButton").addEventListener("click", () => setTheme("light"));
+        $("darkThemeButton").addEventListener("click", () => setTheme("dark"));
+        $("refreshButton").addEventListener("click", () => {
+            window.location.reload();
+        });
+        $("viewGraphsButton").addEventListener("click", fetchHistory);
+        $("refreshAlertsButton").addEventListener("click", fetchAlerts);
+        window.addEventListener("resize", () => {
+            renderGauges(latestReading);
+            renderGraphs();
+        });
+
+        clearLiveReadings();
+        fetchHistory();
+        fetchAlerts();
+
+        if (typeof io === "function") {
+            const socket = io();
+            socket.on("connect", () => {
+                els.serverState.textContent = "Connected";
+            });
+            socket.on("disconnect", () => {
+                els.serverState.textContent = "Disconnected";
+                setEsp32Status(false, null);
+                clearLiveReadings();
+            });
+            socket.on("sensorUpdate", updateLive);
+            socket.on("esp32Status", (status) => {
+                setEsp32Status(Boolean(status && status.online), status && status.last_seen);
+                if (!status || status.online !== true) {
+                    clearLiveReadings();
+                }
+            });
+        }
+    </script>
+</body>
+</html>
