@@ -1,41 +1,28 @@
+// Smart Air Monitoring System with WhatsApp (Circuit Digest)
 #include <WiFi.h>
 #include <HTTPClient.h>
+#include <WiFiClientSecure.h>
 #include <DHT.h>
 
-// ============================
-// Sensor Pins
-// ============================
 #define DHTPIN 4
 #define DHTTYPE DHT11
-
 #define MQ2_PIN 34
 #define RELAY_PIN 23
 #define BUZZER_PIN 22
 
-// ============================
-// Thresholds
-// ============================
 #define TEMP_THRESHOLD 40
 #define GAS_THRESHOLD 600
 
-// ============================
-// WiFi Credentials
-// ============================
-const char* ssid = "yaswanth@123";
-const char* password = "143691436";
+const char* ssid="yaswanth@123";
+const char* password="143691436";
+const char* serverUrl="https://gas-leakage-detection-and-alert-system-1.onrender.com/sensor-data";
+const char* apiKey="cd_yas_150626_5-KU6f";
+const char* host="www.circuitdigest.cloud";
 
-// ============================
-// Node.js Server URL
-// ============================
-const char* serverUrl = "https://gas-leakage-detection-and-alert-system-1.onrender.com/sensor-data";
+DHT dht(DHTPIN,DHTTYPE);
+bool alertSent=false;
 
-DHT dht(DHTPIN, DHTTYPE);
-
-// =====================================
-// Connect WiFi
-// =====================================
 void connectWiFi() {
-
   Serial.print("Connecting to WiFi");
 
   WiFi.begin(ssid, password);
@@ -48,212 +35,84 @@ void connectWiFi() {
   Serial.println();
   Serial.println("================================");
   Serial.println("WiFi Connected");
-  Serial.print("ESP32 IP Address : ");
+  Serial.print("IP Address : ");
   Serial.println(WiFi.localIP());
   Serial.println("================================");
 }
 
-// =====================================
-// Send Data to Node.js Server
-// =====================================
-void sendData(float temperature,
-              float humidity,
-              int gasValue,
-              String fanStatus,
-              String buzzerStatus) {
-
-  if (WiFi.status() != WL_CONNECTED) {
-
-    Serial.println("WiFi Lost... Reconnecting");
-
-    connectWiFi();
-  }
-
-  HTTPClient http;
-
-  http.setTimeout(5000);
-
-  http.begin(serverUrl);
-
-  http.addHeader("Content-Type", "application/json");
-
-  String payload =
-    "{"
-    "\"temperature\":" + String(temperature, 1) +
-    ",\"humidity\":" + String(humidity, 1) +
-    ",\"gas\":" + String(gasValue) +
-    ",\"fan_status\":\"" + fanStatus + "\"" +
-    ",\"buzzer_status\":\"" + buzzerStatus + "\"" +
-    "}";
-
-  Serial.println();
-  Serial.println("Sending JSON");
-  Serial.println(payload);
-
-  int httpCode = http.POST(payload);
-
-  Serial.print("HTTP Response Code : ");
-  Serial.println(httpCode);
-
-  if (httpCode == HTTP_CODE_OK) {
-
-    Serial.println("Data Sent Successfully");
-
-    String response = http.getString();
-
-    Serial.println("Server Response:");
-    Serial.println(response);
-  }
-  else {
-
-    Serial.print("HTTP Error : ");
-    Serial.println(http.errorToString(httpCode));
-  }
-
-  http.end();
+void sendWhatsApp(String status,float t,float h,int gas){
+ WiFiClientSecure client; client.setInsecure();
+ if(!client.connect(host,443)) return;
+ String payload="{\"phone_number\":\"919121328286\",\"template_id\":\"threshold_violation_alert\",\"variables\":{\"device_name\":\"Smart Air Monitoring System\",\"parameter\":\""+status+"\",\"measured_value\":\"Temp:"+String(t,1)+"C Hum:"+String(h,1)+"% Gas:"+String(gas)+"\",\"limit\":\"Threshold Exceeded\",\"location\":\"Home\"}}";
+ client.println("POST /api/v1/whatsapp/send HTTP/1.1");
+ client.println("Host: www.circuitdigest.cloud");
+ client.println("X-API-Key: "+String(apiKey));
+ client.println("Content-Type: application/json");
+ client.print("Content-Length: "); client.println(payload.length());
+ client.println("Connection: close"); client.println(); client.print(payload);
+ while(client.connected()||client.available()){if(client.available()) client.readStringUntil('\n');}
+ client.stop();
 }
 
-// =====================================
-// Setup
-// =====================================
-void setup() {
-
-  Serial.begin(115200);
-
-  dht.begin();
-
-  pinMode(RELAY_PIN, OUTPUT);
-  pinMode(BUZZER_PIN, OUTPUT);
-
-  // Relay OFF
-  digitalWrite(RELAY_PIN, HIGH);
-
-  // Buzzer OFF
-  digitalWrite(BUZZER_PIN, LOW);
-
-  connectWiFi();
-
-  Serial.println("Smart Air Monitoring System Started");
+void sendData(float t,float h,int gas,String fan,String buzz){
+ HTTPClient http;
+ http.begin(serverUrl);
+ http.addHeader("Content-Type","application/json");
+ String p="{\"temperature\":"+String(t,1)+",\"humidity\":"+String(h,1)+",\"gas\":"+String(gas)+",\"fan_status\":\""+fan+"\",\"buzzer_status\":\""+buzz+"\"}";
+ http.POST(p); http.end();
 }
 
-// =====================================
-// Main Loop
-// =====================================
-void loop() {
+void setup(){
+ Serial.begin(115200); dht.begin();
+ pinMode(RELAY_PIN,OUTPUT); pinMode(BUZZER_PIN,OUTPUT);
+ digitalWrite(RELAY_PIN,HIGH); digitalWrite(BUZZER_PIN,LOW);
+ connectWiFi();
+}
 
-  float temperature = dht.readTemperature();
-  float humidity = dht.readHumidity();
-  int gasValue = analogRead(MQ2_PIN);
+void loop(){
+ if(WiFi.status()!=WL_CONNECTED) connectWiFi();
+ float t=dht.readTemperature(), h=dht.readHumidity();
+ int gas=analogRead(MQ2_PIN);
+ if(isnan(t)||isnan(h)){delay(2000); return;}
+ bool highTemp=t>TEMP_THRESHOLD, highGas=gas>GAS_THRESHOLD;
+ String fan="OFF", buzz="OFF", status="NORMAL";
+ if(highTemp||highGas){digitalWrite(RELAY_PIN,LOW); fan="ON";} else {digitalWrite(RELAY_PIN,HIGH);}
+ if(highGas){digitalWrite(BUZZER_PIN,HIGH); buzz="ON";} else digitalWrite(BUZZER_PIN,LOW);
+ if(highTemp&&highGas) status="TEMPERATURE AND GAS ALERT";
+ else if(highGas) status="GAS ALERT";
+ else if(highTemp) status="TEMPERATURE ALERT";
+ if((highTemp||highGas)&&!alertSent){sendWhatsApp(status,t,h,gas); alertSent=true;}
+ if(!highTemp&&!highGas) alertSent=false;
+ sendData(t,h,gas,fan,buzz);
+ // ==========================
+// Serial Monitor
+// ==========================
 
-  if (isnan(temperature) || isnan(humidity)) {
+Serial.println();
+Serial.println("====================================");
+Serial.println("SMART AIR MONITORING SYSTEM");
+Serial.println("====================================");
 
-    Serial.println("DHT11 Reading Failed");
+Serial.print("Temperature : ");
+Serial.print(t);
+Serial.println(" °C");
 
-    delay(2000);
+Serial.print("Humidity    : ");
+Serial.print(h);
+Serial.println(" %");
 
-    return;
-  }
+Serial.print("Gas Value   : ");
+Serial.println(gas);
 
-  bool highTemp = (temperature > TEMP_THRESHOLD);
-  bool highGas = (gasValue > GAS_THRESHOLD);
+Serial.print("Fan         : ");
+Serial.println(fan);
 
-  String fanStatus = "OFF";
-  String buzzerStatus = "OFF";
-  String status = "NORMAL";
+Serial.print("Buzzer      : ");
+Serial.println(buzz);
 
-  // ==========================
-  // Relay Control
-  // ==========================
+Serial.print("Status      : ");
+Serial.println(status);
 
-  if (highTemp || highGas) {
-
-    digitalWrite(RELAY_PIN, LOW);
-
-    fanStatus = "ON";
-  }
-  else {
-
-    digitalWrite(RELAY_PIN, HIGH);
-
-    fanStatus = "OFF";
-  }
-
-  // ==========================
-  // Buzzer Control
-  // ==========================
-
-  if (highGas) {
-
-    digitalWrite(BUZZER_PIN, HIGH);
-
-    buzzerStatus = "ON";
-  }
-  else {
-
-    digitalWrite(BUZZER_PIN, LOW);
-
-    buzzerStatus = "OFF";
-  }
-
-  // ==========================
-  // Status
-  // ==========================
-
-  if (highTemp && highGas) {
-
-    status = "TEMPERATURE AND GAS ALERT";
-  }
-  else if (highGas) {
-
-    status = "GAS ALERT";
-  }
-  else if (highTemp) {
-
-    status = "TEMPERATURE ALERT";
-  }
-
-  // ==========================
-  // Serial Monitor
-  // ==========================
-
-  Serial.println();
-  Serial.println("====================================");
-  Serial.println("SMART AIR MONITORING SYSTEM");
-  Serial.println("====================================");
-
-  Serial.print("Temperature : ");
-  Serial.print(temperature);
-  Serial.println(" °C");
-
-  Serial.print("Humidity    : ");
-  Serial.print(humidity);
-  Serial.println(" %");
-
-  Serial.print("Gas Value   : ");
-  Serial.println(gasValue);
-
-  Serial.print("Fan         : ");
-  Serial.println(fanStatus);
-
-  Serial.print("Buzzer      : ");
-  Serial.println(buzzerStatus);
-
-  Serial.print("Status      : ");
-  Serial.println(status);
-
-  Serial.println("====================================");
-
-  // ==========================
-  // Send Data
-  // ==========================
-
-  sendData(
-    temperature,
-    humidity,
-    gasValue,
-    fanStatus,
-    buzzerStatus
-  );
-
-  delay(2000);
+Serial.println("====================================");
+ delay(2000);
 }
