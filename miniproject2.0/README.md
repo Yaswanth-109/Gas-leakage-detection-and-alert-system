@@ -17,6 +17,7 @@ The ESP32 reads temperature, humidity, and MQ2 gas values, controls the exhaust 
 - MySQL-backed graphs for gas, temperature, humidity, and combined data
 - Graph filters for metric, start date/time, and time range
 - Alerts sorted by latest date and time
+- WhatsApp alert message API support for notifying the user during gas or temperature alerts
 - Render deployment-ready Node.js app
 - Aiven MySQL compatible configuration
 
@@ -32,6 +33,8 @@ DHT11 + MQ2 Sensor
 Node.js Express Server
         |
         +--> MySQL Database
+        |
+        +--> WhatsApp Message API
         |
         v
 Socket.IO Live Dashboard
@@ -72,6 +75,8 @@ miniproject0.1/
 |-- database.sql
 |-- package.json
 |-- README.md
+|-- sketch_jun21a01/
+|   `-- sketch_jun21a01.ino
 `-- server.js
 ```
 
@@ -123,9 +128,13 @@ GAS_LIMIT=600
 ESP32_TIMEOUT_MS=10000
 APP_TIME_ZONE=Asia/Kolkata
 DB_TIME_ZONE=+05:30
+WHATSAPP_API_URL=your_whatsapp_api_url
+WHATSAPP_PHONE_NUMBER=your_whatsapp_number
+WHATSAPP_API_KEY=your_whatsapp_api_key
 ```
 
 Only `DB_PASSWORD` is required in Render if the other values remain as defaults in `server.js`.
+Add the WhatsApp variables only when WhatsApp alert messages are enabled.
 
 ## Local Setup
 
@@ -215,6 +224,27 @@ GET /api/alerts?limit=100
 
 Returns gas and temperature alerts sorted by latest date/time.
 
+### WhatsApp Alert Message API
+
+The project can send an alert message to the configured user through a WhatsApp message API when sensor values cross the configured limits.
+
+WhatsApp alerts are intended for:
+
+```text
+Temperature alert: temperature > TEMPERATURE_LIMIT
+Gas alert: gas > GAS_LIMIT
+```
+
+Recommended environment variables:
+
+```text
+WHATSAPP_API_URL=your_whatsapp_api_url
+WHATSAPP_PHONE_NUMBER=your_whatsapp_number
+WHATSAPP_API_KEY=your_whatsapp_api_key
+```
+
+Do not hardcode the real WhatsApp API key, phone number, or token in the source code. Store them in local `.env` or Render environment variables.
+
 ### Health Check
 
 ```text
@@ -275,6 +305,9 @@ DB_SSL=true
 TEMPERATURE_LIMIT=40
 GAS_LIMIT=600
 ESP32_TIMEOUT_MS=10000
+WHATSAPP_API_URL=your_whatsapp_api_url
+WHATSAPP_PHONE_NUMBER=your_whatsapp_number
+WHATSAPP_API_KEY=your_whatsapp_api_key
 ```
 
 After deployment, Render provides a public URL:
