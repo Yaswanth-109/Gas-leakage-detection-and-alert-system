@@ -631,6 +631,14 @@
             margin-bottom: 18px;
         }
 
+        .alert-controls {
+            display: grid;
+            grid-template-columns: minmax(220px, 1fr) auto auto;
+            gap: 14px;
+            align-items: end;
+            margin-bottom: 18px;
+        }
+
         .field {
             display: grid;
             gap: 7px;
@@ -787,6 +795,7 @@
             }
 
             .filter-card,
+            .alert-controls,
             .graph-grid {
                 grid-template-columns: 1fr;
             }
@@ -854,7 +863,7 @@
 
             <section class="side-status offline" id="sideStatus">
                 <div class="status-line">
-                    <h2>ESP32 Device</h2>
+                    <h2>Sensor Device</h2>
                     <span class="dot"></span>
                 </div>
                 <strong id="sideDeviceState">Offline</strong>
@@ -872,12 +881,10 @@
             <header class="topbar">
                 <div class="title">
                     <h2 id="pageTitle">Live Dashboard</h2>
-                    <p><span id="topDeviceState">ESP32 Offline</span> | Last updated: <span id="topLastSeen">--</span></p>
+                    <p><span id="topDeviceState">Sensor Offline</span> | Last updated: <span id="topLastSeen">--</span></p>
                 </div>
                 <div class="top-actions">
-                    <button class="icon-button active" id="lightThemeButton" title="Light theme">☀️</button>
-                    <button class="icon-button" id="darkThemeButton" title="Dark theme">🌙</button>
-                    <button class="icon-button" id="refreshButton" title="Refresh" aria-label="Refresh dashboard">&#8635;</button>
+                    <button class="icon-button" id="themeToggleButton" title="Switch theme" aria-label="Switch theme">🌙</button>
                 </div>
             </header>
 
@@ -888,8 +895,8 @@
                             <h3>Device Status</h3>
                             <span class="pill offline" id="devicePill">Offline</span>
                         </div>
-                        <p class="big" id="deviceBigState">ESP32 Offline</p>
-                        <p class="muted">Live values clear automatically when server stops receiving ESP32 data.</p>
+                        <p class="big" id="deviceBigState">Sensor Offline</p>
+                        <p class="muted">Live values clear automatically when server stops receiving sensor data.</p>
                     </article>
 
                     <section class="grid reading-grid">
@@ -1008,7 +1015,14 @@
                 <article class="card card-pad">
                     <div class="card-title">
                         <h3>Alerts Sorted By Time And Date</h3>
-                        <button class="primary-button" id="refreshAlertsButton">Refresh Alerts</button>
+                    </div>
+                    <div class="alert-controls">
+                        <div class="field">
+                            <label for="alertDateInput">Alert date</label>
+                            <input id="alertDateInput" type="date">
+                        </div>
+                        <button class="primary-button" id="alertHistoryButton" type="button">History</button>
+                        <button class="primary-button" id="refreshAlertsButton" type="button">Refresh Alerts</button>
                     </div>
                     <div class="alert-list" id="alertList"></div>
                 </article>
@@ -1020,8 +1034,10 @@
         const TEMP_LIMIT = 40;
         const GAS_LIMIT = 600;
         const GAS_MAX = 1000;
+        const THEME_STORAGE_KEY = "smart-air-theme";
         let latestReading = null;
         let historyRows = [];
+        let historyRange = null;
 
         const $ = (id) => document.getElementById(id);
         const els = {
@@ -1056,6 +1072,8 @@
             metricSelect: $("metricSelect"),
             startInput: $("startInput"),
             minutesSelect: $("minutesSelect"),
+            themeToggleButton: $("themeToggleButton"),
+            alertDateInput: $("alertDateInput"),
             alertList: $("alertList")
         };
 
@@ -1100,6 +1118,61 @@
                 hour: "2-digit",
                 minute: "2-digit"
             });
+        }
+
+        function parseLocalDateTime(value) {
+            if (!value) {
+                return null;
+            }
+            const date = new Date(String(value).replace(" ", "T"));
+            return Number.isNaN(date.getTime()) ? null : date;
+        }
+
+        function getSelectedHistoryRange() {
+            const minutes = Math.min(Math.max(Number(els.minutesSelect.value) || 15, 1), 1440);
+            const selectedStart = parseLocalDateTime(els.startInput.value);
+            const end = selectedStart ? new Date(selectedStart.getTime() + minutes * 60 * 1000) : new Date();
+            const start = selectedStart || new Date(end.getTime() - minutes * 60 * 1000);
+            return { start, end, minutes };
+        }
+
+        function setHistoryRange(payload) {
+            const fallback = getSelectedHistoryRange();
+            historyRange = {
+                start: parseLocalDateTime(payload && payload.range_start) || fallback.start,
+                end: parseLocalDateTime(payload && payload.range_end) || fallback.end,
+                minutes: Number(payload && payload.minutes) || fallback.minutes
+            };
+        }
+
+        function getRowTime(row) {
+            return parseLocalDateTime(row.time_bucket || row.created_at);
+        }
+
+        function formatAxisTime(date, minutes) {
+            return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+        }
+
+        function getNiceAxisMax(value, fallback) {
+            if (!Number.isFinite(value) || value <= 0) {
+                return fallback;
+            }
+            const target = value * 1.15;
+            const magnitude = 10 ** Math.floor(Math.log10(target));
+            const normalized = target / magnitude;
+            const nice = normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10;
+            return nice * magnitude;
+        }
+
+        function getSeriesMax(rows, series, fallback) {
+            const highest = rows.reduce((max, row) => {
+                const rowMax = series.reduce((itemMax, item) => {
+                    const value = Number(row[item.key]);
+                    return Number.isFinite(value) ? Math.max(itemMax, value) : itemMax;
+                }, 0);
+                return Math.max(max, rowMax);
+            }, 0);
+            return getNiceAxisMax(highest, fallback);
         }
 
         function classify(temperature, gas) {
@@ -1195,13 +1268,19 @@
             ctx.stroke();
         }
 
-        function drawLineChart(canvas, rows, series, maxValue) {
+        function drawLineChart(canvas, rows, series, fallbackMax, range) {
             const { ctx, width, height } = resizeCanvas(canvas);
             ctx.clearRect(0, 0, width, height);
-            const pad = { left: 52, right: 20, top: 20, bottom: 42 };
+            const pad = { left: 52, right: 20, top: 20, bottom: 58 };
             const chartW = width - pad.left - pad.right;
             const chartH = height - pad.top - pad.bottom;
             const styles = getComputedStyle(document.body);
+            const maxValue = getSeriesMax(rows, series, fallbackMax);
+            const graphRange = range || getSelectedHistoryRange();
+            const rangeStart = graphRange.start;
+            const rangeEnd = graphRange.end;
+            const rangeMs = Math.max(1, rangeEnd.getTime() - rangeStart.getTime());
+            const minutes = graphRange.minutes || Math.round(rangeMs / 60000);
 
             ctx.strokeStyle = styles.getPropertyValue("--chart-grid");
             ctx.lineWidth = 1;
@@ -1217,6 +1296,25 @@
                 ctx.fillText(String(Math.round(maxValue - (i / 4) * maxValue)), 8, y + 4);
             }
 
+            const tickCount = Math.min(12, Math.max(6, Math.floor(chartW / 82)));
+            const timeTicks = Array.from({ length: tickCount }, (_, index) => {
+                const percent = tickCount === 1 ? 0 : index / (tickCount - 1);
+                return new Date(rangeStart.getTime() + rangeMs * percent);
+            });
+
+            timeTicks.forEach((date, index) => {
+                const percent = tickCount === 1 ? 0 : index / (tickCount - 1);
+                const x = pad.left + percent * chartW;
+                ctx.beginPath();
+                ctx.moveTo(x, pad.top);
+                ctx.lineTo(x, pad.top + chartH);
+                ctx.stroke();
+                ctx.textAlign = index === 0 ? "left" : index === tickCount - 1 ? "right" : "center";
+                const labelY = height - (index % 2 === 0 ? 30 : 12);
+                ctx.fillText(formatAxisTime(date, minutes), x, labelY);
+            });
+            ctx.textAlign = "left";
+
             if (!rows.length) {
                 ctx.textAlign = "center";
                 ctx.fillText("No database data for selected time", width / 2, height / 2);
@@ -1226,31 +1324,30 @@
 
             series.forEach((item) => {
                 ctx.beginPath();
-                rows.forEach((row, index) => {
-                    const value = Math.max(0, Math.min(maxValue, Number(row[item.key]) || 0));
-                    const x = pad.left + (rows.length === 1 ? 0 : (index / (rows.length - 1)) * chartW);
+                let hasPoint = false;
+                rows.forEach((row) => {
+                    const rowTime = getRowTime(row);
+                    const rawValue = Number(row[item.key]);
+                    if (!rowTime || !Number.isFinite(rawValue)) {
+                        return;
+                    }
+                    const timePercent = (rowTime.getTime() - rangeStart.getTime()) / rangeMs;
+                    const value = Math.max(0, Math.min(maxValue, rawValue));
+                    const x = pad.left + Math.max(0, Math.min(1, timePercent)) * chartW;
                     const y = pad.top + chartH - (value / maxValue) * chartH;
-                    if (index === 0) {
+                    if (!hasPoint) {
                         ctx.moveTo(x, y);
+                        hasPoint = true;
                     } else {
                         ctx.lineTo(x, y);
                     }
                 });
-                ctx.strokeStyle = item.color;
-                ctx.lineWidth = 2.5;
-                ctx.stroke();
+                if (hasPoint) {
+                    ctx.strokeStyle = item.color;
+                    ctx.lineWidth = 2.5;
+                    ctx.stroke();
+                }
             });
-
-            const labels = [0, Math.floor(rows.length / 2), rows.length - 1].filter((item, index, all) => item >= 0 && all.indexOf(item) === index);
-            ctx.textAlign = "center";
-            labels.forEach((index) => {
-                const row = rows[index];
-                const x = pad.left + (rows.length === 1 ? 0 : (index / (rows.length - 1)) * chartW);
-                const date = new Date(row.created_at || row.time_bucket);
-                const label = Number.isNaN(date.getTime()) ? row.time_bucket : date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-                ctx.fillText(label, x, height - 12);
-            });
-            ctx.textAlign = "left";
         }
 
         function renderGauges(reading) {
@@ -1289,8 +1386,8 @@
             els.sideStatus.classList.toggle("offline", !online);
             els.deviceStatusCard.classList.toggle("online", online);
             els.sideDeviceState.textContent = online ? "Online" : "Offline";
-            els.topDeviceState.textContent = online ? "ESP32 Online" : "ESP32 Offline";
-            els.deviceBigState.textContent = online ? "ESP32 Online" : "ESP32 Offline";
+            els.topDeviceState.textContent = online ? "Sensor Online" : "Sensor Offline";
+            els.deviceBigState.textContent = online ? "Sensor Online" : "Sensor Offline";
             els.devicePill.textContent = online ? "Online" : "Offline";
             els.devicePill.className = `pill ${online ? "" : "offline"}`.trim();
             const last = timeText(lastSeen);
@@ -1344,14 +1441,16 @@
                 card.classList.toggle("hidden", metric !== "all" && type !== metric);
             });
 
-            drawLineChart(charts.gas, historyRows, [{ key: "gas", color: "#19bf66" }], GAS_MAX);
-            drawLineChart(charts.temperature, historyRows, [{ key: "temperature", color: "#e94343" }], 50);
-            drawLineChart(charts.humidity, historyRows, [{ key: "humidity", color: "#12b8c7" }], 100);
+            const range = historyRange || getSelectedHistoryRange();
+
+            drawLineChart(charts.gas, historyRows, [{ key: "gas", color: "#19bf66" }], GAS_MAX, range);
+            drawLineChart(charts.temperature, historyRows, [{ key: "temperature", color: "#e94343" }], 50, range);
+            drawLineChart(charts.humidity, historyRows, [{ key: "humidity", color: "#12b8c7" }], 100, range);
             drawLineChart(charts.all, historyRows, [
                 { key: "gas", color: "#19bf66" },
                 { key: "temperature", color: "#e94343" },
                 { key: "humidity", color: "#12b8c7" }
-            ], GAS_MAX);
+            ], GAS_MAX, range);
         }
 
         async function fetchHistory() {
@@ -1364,21 +1463,29 @@
                 const response = await fetch(`/api/history?${params.toString()}`);
                 const payload = await response.json();
                 historyRows = payload.data || [];
+                setHistoryRange(payload);
             } catch (error) {
                 console.error("History fetch failed:", error);
                 historyRows = [];
+                historyRange = getSelectedHistoryRange();
             }
             renderGraphs();
         }
 
         async function fetchAlerts() {
             try {
-                const response = await fetch("/api/alerts?limit=100");
+                const params = new URLSearchParams();
+                params.set("limit", "100");
+                if (els.alertDateInput.value) {
+                    params.set("date", els.alertDateInput.value);
+                }
+                const response = await fetch(`/api/alerts?${params.toString()}`);
                 const payload = await response.json();
                 const rows = payload.data || [];
                 els.alertList.innerHTML = "";
                 if (!rows.length) {
-                    els.alertList.innerHTML = '<div class="empty-state">No alerts found for stored database readings.</div>';
+                    const dateText = els.alertDateInput.value ? ` on ${els.alertDateInput.value}` : "";
+                    els.alertList.innerHTML = `<div class="empty-state">No alerts found${dateText}.</div>`;
                     return;
                 }
                 rows.forEach((alert) => {
@@ -1391,11 +1498,6 @@
                 console.error("Alert fetch failed:", error);
                 els.alertList.innerHTML = '<div class="empty-state">Alerts could not be loaded right now.</div>';
             }
-        }
-
-        async function refreshAll() {
-            await Promise.allSettled([fetchHistory(), fetchAlerts()]);
-            renderGauges(latestReading);
         }
 
         function showView(name) {
@@ -1411,10 +1513,28 @@
             }
         }
 
-        function setTheme(theme) {
+        function getStoredTheme() {
+            try {
+                return localStorage.getItem(THEME_STORAGE_KEY) === "dark" ? "dark" : "light";
+            } catch (error) {
+                return "light";
+            }
+        }
+
+        function setTheme(theme, shouldStore = true) {
             document.body.setAttribute("data-theme", theme);
-            $("lightThemeButton").classList.toggle("active", theme === "light");
-            $("darkThemeButton").classList.toggle("active", theme === "dark");
+            els.themeToggleButton.textContent = theme === "dark" ? "☀️" : "🌙";
+            els.themeToggleButton.title = theme === "dark" ? "Switch to light theme" : "Switch to dark theme";
+            els.themeToggleButton.setAttribute("aria-label", els.themeToggleButton.title);
+            els.themeToggleButton.setAttribute("aria-pressed", theme === "dark" ? "true" : "false");
+            els.themeToggleButton.classList.toggle("active", theme === "dark");
+            if (shouldStore) {
+                try {
+                    localStorage.setItem(THEME_STORAGE_KEY, theme);
+                } catch (error) {
+                    console.warn("Theme preference could not be saved:", error);
+                }
+            }
             renderGauges(latestReading);
             renderGraphs();
         }
@@ -1422,18 +1542,19 @@
         document.querySelectorAll(".nav-button").forEach((button) => {
             button.addEventListener("click", () => showView(button.dataset.view));
         });
-        $("lightThemeButton").addEventListener("click", () => setTheme("light"));
-        $("darkThemeButton").addEventListener("click", () => setTheme("dark"));
-        $("refreshButton").addEventListener("click", () => {
-            window.location.reload();
+        els.themeToggleButton.addEventListener("click", () => {
+            const nextTheme = document.body.getAttribute("data-theme") === "dark" ? "light" : "dark";
+            setTheme(nextTheme);
         });
         $("viewGraphsButton").addEventListener("click", fetchHistory);
+        $("alertHistoryButton").addEventListener("click", fetchAlerts);
         $("refreshAlertsButton").addEventListener("click", fetchAlerts);
         window.addEventListener("resize", () => {
             renderGauges(latestReading);
             renderGraphs();
         });
 
+        setTheme(getStoredTheme(), false);
         clearLiveReadings();
         fetchHistory();
         fetchAlerts();
