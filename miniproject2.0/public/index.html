@@ -353,12 +353,12 @@
         }
 
         .reading-grid {
-            grid-template-columns: repeat(3, minmax(190px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
         }
 
         .device-grid {
             grid-column: 1 / -1;
-            grid-template-columns: repeat(2, minmax(280px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
         }
 
         .card {
@@ -448,6 +448,7 @@
             min-height: 316px;
             justify-items: center;
             align-content: space-between;
+            min-width: 0;
         }
 
         .gauge-card:hover .gauge-box {
@@ -501,6 +502,7 @@
             min-height: 98px;
             padding: 18px;
             overflow: hidden;
+            min-width: 0;
         }
 
         .device-card:hover .device-art {
@@ -810,6 +812,8 @@
 
             .filter-card,
             .alert-controls,
+            .reading-grid,
+            .device-grid,
             .graph-grid {
                 grid-template-columns: 1fr;
             }
