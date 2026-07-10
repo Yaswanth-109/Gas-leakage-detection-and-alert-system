@@ -1,22 +1,23 @@
 # Smart Air Monitoring Dashboard
 
-A real-time ESP32 air quality and gas leakage monitoring system with a Node.js backend, MySQL storage, Socket.IO live updates, database-backed graphs, alert history, and a responsive light/dark dashboard.
+A real-time Sensor Device (ESP32) air quality and gas leakage monitoring system with a Node.js backend, MySQL storage, Socket.IO live updates, database-backed graphs, date-filtered alert history, and a responsive light/dark dashboard.
 
-The ESP32 reads temperature, humidity, and MQ2 gas values, controls the exhaust fan and buzzer, then sends readings to the Node.js server. The server stores readings in MySQL and pushes live updates to the browser dashboard.
+The Sensor Device (ESP32) reads temperature, humidity, and MQ2 gas values, controls the exhaust fan and buzzer, then sends readings to the Node.js server. The server immediately pushes live readings to the browser dashboard through Socket.IO and stores the same readings in MySQL for graphs and alert history.
 
 ## Features
 
 - Logo-based dashboard design using the project color palette
-- Light and dark theme buttons
-- Browser-style refresh button
+- Single emoji light/dark theme toggle with saved user preference
 - Sidebar navigation with Live Dashboard, Graphs, and Alerts
-- ESP32 online/offline status from the server
+- User-facing sensor online/offline status from the server
 - Live alert status: Normal, Gas Alert, Temperature Alert, or Gas and Temperature Alert
 - Live gas, humidity, and temperature gauges
 - Fan and buzzer ON/OFF status cards
 - MySQL-backed graphs for gas, temperature, humidity, and combined data
 - Graph filters for metric, start date/time, and time range
+- Dynamic graph x-axis time labels and y-axis scaling based on selected data
 - Alerts sorted by latest date and time
+- Alert history date filter with History and Refresh Alerts controls
 - WhatsApp alert message API support for notifying the user during gas or temperature alerts
 - Render deployment-ready Node.js app
 - Aiven MySQL compatible configuration
@@ -27,7 +28,7 @@ The ESP32 reads temperature, humidity, and MQ2 gas values, controls the exhaust 
 DHT11 + MQ2 Sensor
         |
         v
-      ESP32
+Sensor Device (ESP32)
         |
         v
 Node.js Express Server
@@ -42,7 +43,7 @@ Socket.IO Live Dashboard
 
 ## Hardware Used
 
-- ESP32
+- Sensor Device (ESP32)
 - DHT11 temperature and humidity sensor
 - MQ2 gas sensor
 - Relay module
@@ -73,6 +74,7 @@ miniproject0.1/
 |-- .env.example
 |-- .gitignore
 |-- database.sql
+|-- package-lock.json
 |-- package.json
 |-- README.md
 |-- sketch_jun21a01/
@@ -166,7 +168,7 @@ GET /
 
 Serves the dashboard UI.
 
-### Receive ESP32 Sensor Data
+### Receive Sensor Device (ESP32) Data
 
 ```text
 POST /sensor-data
@@ -192,13 +194,13 @@ GET /api/latest
 
 Returns the most recent database row.
 
-### ESP32 Status
+### Sensor Device (ESP32) Status
 
 ```text
 GET /api/esp32-status
 ```
 
-Returns whether the server is currently receiving live ESP32 data.
+Returns whether the server is currently receiving live Sensor Device (ESP32) data.
 
 ### Graph History
 
@@ -207,7 +209,7 @@ GET /api/history?minutes=15
 ```
 
 Returns minute-wise average values from MySQL for gas, temperature, and humidity.
-The dashboard uses these rows for the graph x-axis time labels.
+The dashboard uses these rows for dynamic graph x-axis time labels and y-axis scaling.
 
 Optional query values:
 
@@ -223,6 +225,14 @@ GET /api/alerts?limit=100
 ```
 
 Returns gas and temperature alerts sorted by latest date/time.
+
+Optional date filter:
+
+```text
+GET /api/alerts?limit=100&date=2026-07-10
+```
+
+The Alerts page uses this filter when the user selects an alert date and clicks History. Refresh Alerts reloads the latest data for the currently selected date, or the latest alerts when no date is selected.
 
 ### WhatsApp Alert Message API
 
@@ -261,11 +271,11 @@ Temperature alert: temperature > 40
 Gas alert: gas > 600
 ```
 
-## ESP32 Online/Offline Logic
+## Sensor Device (ESP32) Online/Offline Logic
 
-The server marks ESP32 as online whenever it receives `POST /sensor-data`.
+The server marks the Sensor Device (ESP32) as online whenever it receives `POST /sensor-data`.
 
-If no new sensor data arrives within:
+If no new Sensor Device (ESP32) data arrives within:
 
 ```text
 ESP32_TIMEOUT_MS=10000
@@ -273,7 +283,7 @@ APP_TIME_ZONE=Asia/Kolkata
 DB_TIME_ZONE=+05:30
 ```
 
-the server marks ESP32 as offline and the dashboard clears old live readings.
+the server marks the Sensor Device (ESP32) as offline and the dashboard clears old live readings.
 
 ## Render Deployment
 
@@ -316,15 +326,15 @@ After deployment, Render provides a public URL:
 https://your-app-name.onrender.com
 ```
 
-## ESP32 Update After Deployment
+## Sensor Device (ESP32) Update After Deployment
 
-Update the ESP32 server URL:
+Update the Sensor Device (ESP32) server URL:
 
 ```cpp
 const char* serverUrl = "https://your-app-name.onrender.com/sensor-data";
 ```
 
-If using HTTPS on ESP32, the Arduino code may need `WiFiClientSecure` with certificate handling or `setInsecure()` for demo use.
+If using HTTPS on the Sensor Device (ESP32), the Arduino code may need `WiFiClientSecure` with certificate handling or `setInsecure()` for demo use.
 
 ## Security Notes
 
