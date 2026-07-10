@@ -145,22 +145,75 @@ function getAlertFromReading(row) {
     return null;
 }
 
+function padDatePart(value) {
+    return String(value).padStart(2, "0");
+}
+
+function formatDateTimeForMysql(date) {
+    return [
+        date.getFullYear(),
+        padDatePart(date.getMonth() + 1),
+        padDatePart(date.getDate())
+    ].join("-") + " " + [
+        padDatePart(date.getHours()),
+        padDatePart(date.getMinutes()),
+        padDatePart(date.getSeconds())
+    ].join(":");
+}
+
+function normalizeDateTimeInput(value) {
+    const normalized = String(value || "")
+        .trim()
+        .replace("T", " ")
+        .replace(/\.\d+$/, "");
+
+    return /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(normalized)
+        ? `${normalized}:00`
+        : normalized;
+}
+
 function getHistoryWhereClause(query) {
     const minutes = Math.min(Math.max(Number(query.minutes) || 15, 1), 1440);
+    const endDate = new Date();
+    let start = formatDateTimeForMysql(new Date(endDate.getTime() - minutes * 60 * 1000));
+    let end = formatDateTimeForMysql(endDate);
 
     if (query.start) {
-        const start = String(query.start).replace("T", " ");
-        return {
-            where: "created_at >= ? AND created_at < DATE_ADD(?, INTERVAL ? MINUTE)",
-            params: [start, start, minutes],
-            minutes
-        };
+        const requestedStart = normalizeDateTimeInput(query.start);
+        const requestedStartDate = new Date(requestedStart.replace(" ", "T"));
+        if (!Number.isNaN(requestedStartDate.getTime())) {
+            start = requestedStart;
+            end = formatDateTimeForMysql(new Date(requestedStartDate.getTime() + minutes * 60 * 1000));
+        }
     }
 
     return {
-        where: "created_at >= DATE_SUB(NOW(), INTERVAL ? MINUTE)",
-        params: [minutes],
-        minutes
+        where: "created_at >= ? AND created_at < ?",
+        params: [start, end],
+        minutes,
+        start,
+        end
+    };
+}
+
+function getAlertDateRange(value) {
+    const match = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!match) {
+        return null;
+    }
+
+    const year = Number(match[1]);
+    const month = Number(match[2]);
+    const day = Number(match[3]);
+    const startDate = new Date(year, month - 1, day, 0, 0, 0);
+    if (Number.isNaN(startDate.getTime())) {
+        return null;
+    }
+
+    const endDate = new Date(startDate.getTime() + 24 * 60 * 60 * 1000);
+    return {
+        start: formatDateTimeForMysql(startDate),
+        end: formatDateTimeForMysql(endDate)
     };
 }
 
@@ -187,6 +240,8 @@ function markEsp32Online(payload) {
     }, ESP32_TIMEOUT_MS);
 
     emitEsp32Status();
+
+    return latestLiveReading;
 }
 
 function clearEsp32OfflineTimer() {
@@ -254,8 +309,8 @@ app.post("/sensor-data", (req, res) => {
         status
     };
 
-    markEsp32Online(payload);
-    io.emit("sensorUpdate", payload);
+    const livePayload = markEsp32Online(payload);
+    io.emit("sensorUpdate", livePayload);
 
     console.log("====================================");
     console.log("SMART AIR MONITORING SYSTEM");
@@ -300,7 +355,7 @@ app.post("/sensor-data", (req, res) => {
 
             res.status(200).json({
                 success: true,
-                ...payload
+                ...livePayload
             });
         }
     );
@@ -352,6 +407,8 @@ app.get("/api/history", (req, res) => {
         res.json({
             success: true,
             minutes: range.minutes,
+            range_start: range.start,
+            range_end: range.end,
             data: result
         });
     });
@@ -359,15 +416,21 @@ app.get("/api/history", (req, res) => {
 
 app.get("/api/alerts", (req, res) => {
     const limit = Math.min(Math.max(Number(req.query.limit) || 100, 1), 300);
+    const alertRange = getAlertDateRange(req.query.date);
+    const dateFilter = alertRange ? "AND created_at >= ? AND created_at < ?" : "";
+    const params = alertRange
+        ? [GAS_LIMIT, TEMPERATURE_LIMIT, alertRange.start, alertRange.end, limit]
+        : [GAS_LIMIT, TEMPERATURE_LIMIT, limit];
     const sql = `
         SELECT temperature, humidity, gas_value, fan_status, buzzer_status, created_at
         FROM sensor_data
-        WHERE gas_value > ? OR temperature > ?
+        WHERE (gas_value > ? OR temperature > ?)
+        ${dateFilter}
         ORDER BY created_at DESC
         LIMIT ?
     `;
 
-    db.query(sql, [GAS_LIMIT, TEMPERATURE_LIMIT, limit], (err, result) => {
+    db.query(sql, params, (err, result) => {
         if (err) {
             return res.status(500).json({
                 success: false,
@@ -377,6 +440,7 @@ app.get("/api/alerts", (req, res) => {
 
         res.json({
             success: true,
+            date: req.query.date || null,
             data: result.map(getAlertFromReading).filter(Boolean)
         });
     });
